@@ -1,4 +1,5 @@
 import html
+import json
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -413,9 +414,27 @@ async def chat_message(update: Update, context) -> None:
         return
 
     await db.save_message(user.id, "user", message.text)
-    history = await db.get_recent_messages(user.id)
 
     try:
+        # Personalization can be disabled in the user's profile.
+        personalization_enabled = profile.get("personalization_enabled", True) is not False
+        memory_record = None
+        summary_text = None
+        summary_cursor = 0
+
+        if personalization_enabled:
+            memory_record = await db.get_memory(user.id)
+            if memory_record:
+                try:
+                    memory_data = json.loads(memory_record)
+                    summary_text = str(memory_data.get("summary") or "")[:1500]
+                    summary_cursor = int(memory_data.get("last_id") or 0)
+                except (ValueError, TypeError, AttributeError):
+                    # Migrate an older plain-text memory value safely.
+                    summary_text = str(memory_record)[:1500]
+
+        history = await db.get_recent_messages(user.id, limit=8)
+
         # Look up a single cover only for a specific anime/franchise question.
         search_term = extract_anime_search_term(message.text)
         anime_cover = (
@@ -427,6 +446,7 @@ async def chat_message(update: Update, context) -> None:
         answer, provider = await context.application.bot_data["ai"].reply(
             history,
             profile.get("preferred_language"),
+            memory_summary=summary_text,
         )
 
         await db.save_message(user.id, "assistant", answer)
@@ -445,6 +465,38 @@ async def chat_message(update: Update, context) -> None:
                 )
 
         await send_formatted_answer(message, answer)
+
+        # Refresh memory after the user has received the answer. Summarization is
+        # best-effort: if it fails, the chat reply remains successful.
+        if personalization_enabled:
+            try:
+                pending = await db.get_messages_for_summary(
+                    user.id,
+                    after_id=summary_cursor,
+                    keep_recent=8,
+                    limit=24,
+                )
+                if len(pending) >= 8:
+                    ai = context.application.bot_data["ai"]
+                    updated_summary = await ai.summarize_memory(
+                        summary_text,
+                        pending,
+                    )
+                    if updated_summary:
+                        last_id = int(pending[-1]["id"])
+                        await db.set_memory(
+                            user.id,
+                            json.dumps(
+                                {"summary": updated_summary, "last_id": last_id},
+                                ensure_ascii=False,
+                            ),
+                        )
+                        log.info("Conversation memory summary updated.")
+            except Exception as memory_exc:
+                log.warning(
+                    "Conversation memory update skipped (%s)",
+                    type(memory_exc).__name__,
+                )
 
     except Exception as exc:
         log.warning(

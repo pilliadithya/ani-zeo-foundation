@@ -1,7 +1,10 @@
 
+import asyncio
 import logging
-import re
+import time
 from typing import Any
+
+import httpx
 
 from app.ai.providers import build_providers
 
@@ -94,6 +97,16 @@ class AIRouter:
     MAX_HISTORY_MESSAGES = 8
     SUMMARY_MAX_CHARS = 1_200
 
+    # Provider-specific timeouts.
+    NVIDIA_TIMEOUT = 60.0
+    NVIDIA_RETRY_TIMEOUT = 35.0
+
+    # Only one retry per provider request.
+    MAX_ATTEMPTS = 2
+
+    # Retry only temporary failures.
+    RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
     def __init__(self, settings: Any):
         self.settings = settings
         self.providers = build_providers(settings)
@@ -101,6 +114,7 @@ class AIRouter:
     @staticmethod
     def _language_instruction(language: str | None) -> str:
         preferred = (language or "").strip().lower()
+
         aliases = {
             "telugu": "Tenglish (natural Telugu-English in Latin script)",
             "tenglish": "natural Telangana-friendly spoken Tenglish in Latin script",
@@ -110,53 +124,72 @@ class AIRouter:
             "tamil": "natural spoken Tamil-English Tanglish in Latin script",
             "english": "casual conversational English",
         }
+
         if not preferred:
             return ""
-        return "\n\nUSER'S SELECTED LANGUAGE: " + aliases.get(preferred, preferred) + "."
+
+        return "\n\nUSER'S SELECTED LANGUAGE: " + aliases.get(
+            preferred, preferred
+        ) + "."
 
     @staticmethod
     def _latest_user_text(history: list[dict]) -> str:
         for item in reversed(history or []):
-            if item.get("role") == "user" and isinstance(item.get("content"), str):
+            if (
+                item.get("role") == "user"
+                and isinstance(item.get("content"), str)
+            ):
                 return item["content"].strip()
+
         return ""
 
     @classmethod
     def _output_budget(cls, history: list[dict]) -> int:
-        """Token budget follows conversational intent; it is not a sentence quota."""
         latest = cls._latest_user_text(history).lower()
 
         deep_terms = (
-            "in detail", "detailed", "deep dive", "comprehensive", "full analysis",
-            "complete guide", "step by step", "step-by-step", "research", "elaborate",
+            "in detail", "detailed", "deep dive", "comprehensive",
+            "full analysis", "complete guide", "step by step",
+            "step-by-step", "research", "elaborate",
             "explain everything", "full explanation", "long answer",
         )
 
         learn_more_terms = (
-            "tell me more", "more information", "more details", "go deeper",
-            "why", "how did", "how does", "explain", "break it down",
-            "inka cheppu", "inka explain", "konchem detail", "detail ga",
-            "aur batao", "thoda detail", "konjam detail",
+            "tell me more", "more information", "more details",
+            "go deeper", "why", "how did", "how does", "explain",
+            "break it down", "inka cheppu", "inka explain",
+            "konchem detail", "detail ga", "aur batao",
+            "thoda detail", "konjam detail",
         )
 
-        list_terms = ("top 10", "top 5", "list of", "watch order", "recommendations")
+        list_terms = (
+            "top 10", "top 5", "list of",
+            "watch order", "recommendations",
+        )
 
         if any(term in latest for term in deep_terms):
             return 1_200
+
         if any(term in latest for term in learn_more_terms):
             return 750
+
         if any(term in latest for term in list_terms):
             return 700
 
         return 450
 
     @staticmethod
-    def _trim_message(content: str, limit: int, keep_ends: bool = False) -> str:
+    def _trim_message(
+        content: str,
+        limit: int,
+        keep_ends: bool = False
+    ) -> str:
         if len(content) <= limit:
             return content
 
         if keep_ends:
             head = max(1, limit - 180)
+
             return (
                 content[:head]
                 + "\n...[middle of long message omitted]...\n"
@@ -165,11 +198,18 @@ class AIRouter:
 
         return "[Earlier content shortened] " + content[-(limit - 32):]
 
-    def _build_messages(self, history, language=None, memory_summary=None, compact=False):
+    def _build_messages(
+        self,
+        history,
+        language=None,
+        memory_summary=None,
+        compact=False
+    ):
         system = SYSTEM_PROMPT + self._language_instruction(language)
 
         if memory_summary:
             summary = str(memory_summary).strip()[:self.SUMMARY_MAX_CHARS]
+
             if summary:
                 system += (
                     "\n\nUSER CONTEXT — explicit facts only; use only when relevant. "
@@ -233,32 +273,76 @@ class AIRouter:
             total -= len(messages.pop(1)["content"])
 
         if total > self.MAX_REQUEST_CHARS:
-            messages[0]["content"] = messages[0]["content"][:self.MAX_REQUEST_CHARS]
+            messages[0]["content"] = messages[0]["content"][
+                :self.MAX_REQUEST_CHARS
+            ]
 
         return messages
 
     @staticmethod
     def _status_code(exc):
-        return getattr(getattr(exc, "response", None), "status_code", None)
+        return getattr(
+            getattr(exc, "response", None),
+            "status_code",
+            None
+        )
 
-    async def _generate_with_fallback(self, messages, compact_messages, output_tokens):
-        failures = []
+    @classmethod
+    def _is_retryable(cls, exc):
+        status = cls._status_code(exc)
 
-        for name in self.settings.provider_order:
-            provider = self.providers.get(name)
+        if status in cls.RETRYABLE_STATUS_CODES:
+            return True
 
-            if not provider or not provider.api_key:
-                continue
+        return isinstance(
+            exc,
+            (httpx.TimeoutException, httpx.NetworkError)
+        )
 
-            # Gemini gets up to 60 seconds.
-            # Other providers keep the configured timeout.
-            if name == "gemini":
-                timeout = max(
-                    float(self.settings.ai_timeout_seconds),
-                    60.0
-                )
-            else:
-                timeout = float(self.settings.ai_timeout_seconds)
+    @staticmethod
+    def _retry_delay(exc, attempt):
+        # Respect a short numeric Retry-After value when supplied.
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", {}) or {}
+
+        retry_after = headers.get("Retry-After")
+
+        if retry_after:
+            try:
+                delay = float(retry_after)
+
+                # Avoid holding the Telegram request for a long time.
+                if 0 < delay <= 10:
+                    return delay
+
+                if delay > 10:
+                    return None
+
+            except (ValueError, TypeError):
+                pass
+
+        # Exponential backoff: 2 seconds, then 4 seconds.
+        return min(2 ** attempt, 4)
+
+    def _provider_timeout(self, name, attempt):
+        if name == "nvidia":
+            if attempt == 1:
+                return self.NVIDIA_TIMEOUT
+
+            return self.NVIDIA_RETRY_TIMEOUT
+
+        return float(self.settings.ai_timeout_seconds)
+
+    async def _call_provider(
+        self,
+        name,
+        provider,
+        messages,
+        output_tokens
+    ):
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            timeout = self._provider_timeout(name, attempt)
+            started = time.monotonic()
 
             try:
                 answer = await provider.generate(
@@ -267,40 +351,111 @@ class AIRouter:
                     output_tokens
                 )
 
+                elapsed = time.monotonic() - started
+
                 if isinstance(answer, str) and answer.strip():
-                    return answer.strip(), name
+                    log.info(
+                        "AI provider %s succeeded (attempt=%s, elapsed=%.2fs)",
+                        name,
+                        attempt,
+                        elapsed
+                    )
+
+                    return answer.strip()
 
                 raise RuntimeError("Provider returned an empty response.")
 
             except Exception as exc:
+                elapsed = time.monotonic() - started
                 status = self._status_code(exc)
 
                 log.warning(
-                    "AI provider %s failed (type=%s, status=%s)",
+                    "AI provider %s failed "
+                    "(attempt=%s, type=%s, status=%s, elapsed=%.2fs)",
                     name,
+                    attempt,
                     type(exc).__name__,
-                    status
+                    status,
+                    elapsed
                 )
 
-                # Retry oversized requests with shorter history/context.
+                if (
+                    attempt >= self.MAX_ATTEMPTS
+                    or not self._is_retryable(exc)
+                ):
+                    raise
+
+                delay = self._retry_delay(exc, attempt)
+
+                if delay is None:
+                    log.warning(
+                        "AI provider %s retry skipped because Retry-After "
+                        "exceeds the allowed wait",
+                        name
+                    )
+                    raise
+
+                log.info(
+                    "Retrying AI provider %s after %.1f seconds",
+                    name,
+                    delay
+                )
+
+                await asyncio.sleep(delay)
+
+        raise RuntimeError(f"{name} failed after retry attempts")
+
+    async def _generate_with_fallback(
+        self,
+        messages,
+        compact_messages,
+        output_tokens
+    ):
+        failures = []
+
+        for name in self.settings.provider_order:
+            provider = self.providers.get(name)
+
+            if not provider or not provider.api_key:
+                continue
+
+            try:
+                answer = await self._call_provider(
+                    name,
+                    provider,
+                    messages,
+                    output_tokens
+                )
+
+                return answer, name
+
+            except Exception as exc:
+                status = self._status_code(exc)
+
+                # For oversized requests, try one compact request.
                 if status == 413 and compact_messages:
                     try:
+                        log.info(
+                            "Retrying provider %s with compact conversation",
+                            name
+                        )
+
                         answer = await provider.generate(
                             compact_messages,
-                            timeout,
+                            self._provider_timeout(name, 2),
                             min(output_tokens, 450)
                         )
 
                         if isinstance(answer, str) and answer.strip():
                             log.info(
-                                "AI provider %s recovered after compact retry",
+                                "Provider %s recovered with compact context",
                                 name
                             )
                             return answer.strip(), name
 
                     except Exception as retry_exc:
                         log.warning(
-                            "AI provider %s compact retry failed "
+                            "Compact retry failed for %s "
                             "(type=%s, status=%s)",
                             name,
                             type(retry_exc).__name__,
@@ -308,6 +463,11 @@ class AIRouter:
                         )
 
                 failures.append(name)
+
+                log.warning(
+                    "Moving to next provider after %s failure",
+                    name
+                )
 
         if not failures:
             raise RuntimeError(
@@ -318,7 +478,12 @@ class AIRouter:
             "All configured AI providers failed: " + ", ".join(failures)
         )
 
-    async def reply(self, history, language=None, memory_summary=None):
+    async def reply(
+        self,
+        history,
+        language=None,
+        memory_summary=None
+    ):
         messages = self._build_messages(
             history,
             language,
@@ -339,7 +504,11 @@ class AIRouter:
             self._output_budget(history)
         )
 
-    async def summarize_memory(self, existing_summary, messages_to_summarize):
+    async def summarize_memory(
+        self,
+        existing_summary,
+        messages_to_summarize
+    ):
         if not messages_to_summarize:
             return existing_summary
 
@@ -350,7 +519,9 @@ class AIRouter:
                 item.get("role") == "user"
                 and isinstance(item.get("content"), str)
             ):
-                user_lines.append("USER SAID: " + item["content"][:500])
+                user_lines.append(
+                    "USER SAID: " + item["content"][:500]
+                )
 
         if not user_lines:
             return existing_summary
@@ -381,7 +552,20 @@ class AIRouter:
             },
         ]
 
-        for name in self.settings.provider_order:
+        # Memory summaries are background maintenance.
+        # Do not let a slow NVIDIA request delay normal conversations.
+        memory_order = [
+            name
+            for name in ("groq", "gemini", "nvidia", "openrouter")
+            if name in self.providers
+        ]
+
+        # NVIDIA is intentionally excluded from memory summarization.
+        memory_order = [
+            name for name in memory_order if name != "nvidia"
+        ]
+
+        for name in memory_order:
             provider = self.providers.get(name)
 
             if not provider or not provider.api_key:
@@ -390,8 +574,8 @@ class AIRouter:
             try:
                 result = await provider.generate(
                     messages,
-                    min(float(self.settings.ai_timeout_seconds), 15.0),
-                    min(int(self.settings.ai_max_output_tokens), 250),
+                    min(float(self.settings.ai_timeout_seconds), 8.0),
+                    min(int(self.settings.ai_max_output_tokens), 200),
                 )
 
                 result = str(result).strip()
@@ -399,14 +583,21 @@ class AIRouter:
                 if not result or result == "NO_MEMORY":
                     return existing_summary
 
+                log.info(
+                    "Memory summary updated using provider=%s",
+                    name
+                )
+
                 return result[:1_000]
 
             except Exception as exc:
                 log.warning(
-                    "Memory summary provider %s failed (type=%s, status=%s)",
+                    "Memory summary provider %s failed "
+                    "(type=%s, status=%s)",
                     name,
                     type(exc).__name__,
                     self._status_code(exc)
                 )
 
+        # If memory generation fails, retain the previous summary.
         return existing_summary

@@ -30,6 +30,26 @@ class Database:
                 )
                 """
             )
+            # Upgrade databases created by the earlier deduplication version.
+            await self._pool().execute(
+                """
+                alter table public.processed_telegram_updates
+                add column if not exists claim_token uuid
+                """
+            )
+            await self._pool().execute(
+                """
+                update public.processed_telegram_updates
+                set claim_token=gen_random_uuid()
+                where claim_token is null
+                """
+            )
+            await self._pool().execute(
+                """
+                alter table public.processed_telegram_updates
+                alter column claim_token set not null
+                """
+            )
             await self._pool().execute(
                 """
                 create index if not exists processed_telegram_updates_claimed_idx

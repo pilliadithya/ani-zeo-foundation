@@ -1,3 +1,5 @@
+import uuid
+
 import asyncpg
 from app.config import Settings
 
@@ -28,6 +30,55 @@ class Database:
         if not self.pool:
             raise RuntimeError("Database is not connected")
         return self.pool
+
+    async def claim_telegram_update(self, update_id: int) -> uuid.UUID | None:
+        """Atomically claim an update and return its fencing token; None means duplicate."""
+        claim_token = uuid.uuid4()
+        row = await self._pool().fetchrow(
+            """insert into public.processed_telegram_updates
+                (update_id, claim_token, status, attempts, claimed_at)
+            values ($1, $2, 'processing', 1, now())
+            on conflict (update_id) do update set
+                claim_token=excluded.claim_token,
+                status='processing',
+                attempts=public.processed_telegram_updates.attempts + 1,
+                claimed_at=now(),
+                last_error=null
+            where public.processed_telegram_updates.status='failed'
+               or (
+                    public.processed_telegram_updates.status='processing'
+                    and public.processed_telegram_updates.claimed_at
+                        < now() - interval '10 minutes'
+               )
+            returning claim_token""",
+            update_id,
+            claim_token,
+        )
+        return row["claim_token"] if row else None
+
+    async def complete_telegram_update(self, update_id: int, claim_token: uuid.UUID):
+        """Complete only the claim still owned by this webhook attempt."""
+        await self._pool().execute(
+            """update public.processed_telegram_updates
+            set status='completed', completed_at=now(), last_error=null
+            where update_id=$1 and claim_token=$2 and status='processing'""",
+            update_id,
+            claim_token,
+        )
+
+    async def fail_telegram_update(
+        self, update_id: int, claim_token: uuid.UUID, error_label: str
+    ):
+        # Store only a bounded, non-sensitive error category; never raw exception text.
+        safe_label = (error_label or "processing_error")[:80]
+        await self._pool().execute(
+            """update public.processed_telegram_updates
+            set status='failed', last_error=$3
+            where update_id=$1 and claim_token=$2 and status='processing'""",
+            update_id,
+            claim_token,
+            safe_label,
+        )
 
     async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):
         await self._pool().execute(

@@ -14,8 +14,8 @@ from app import main as main_module
 
 
 class FakeDatabase:
-    def __init__(self, claim_token=None):
-        self.claim_token = claim_token if claim_token is not None else uuid.uuid4()
+    def __init__(self, duplicate=False):
+        self.claim_token = None if duplicate else uuid.uuid4()
         self.claim_calls = []
         self.completed = []
         self.failed = []
@@ -83,7 +83,7 @@ async def test_webhook_completes_successful_update(configured_app):
 
 @pytest.mark.asyncio
 async def test_webhook_ignores_duplicate_without_dispatch(configured_app):
-    configured_app.test_db = FakeDatabase(claim_token=None)
+    configured_app.test_db = FakeDatabase(duplicate=True)
     configured_app.test_telegram_app = FakeTelegramApp()
 
     response = await post_update(configured_app)

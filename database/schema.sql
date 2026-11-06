@@ -36,6 +36,7 @@ create table if not exists public.user_memories (
 create table if not exists public.processed_telegram_updates (
   update_id bigint primary key,
   status text not null check (status in ('processing','completed')),
+  claim_token uuid not null,
   claimed_at timestamptz not null default now(),
   completed_at timestamptz
 );

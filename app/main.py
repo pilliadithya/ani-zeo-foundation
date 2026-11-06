@@ -617,23 +617,53 @@ async def telegram_webhook(request: Request):
 
     try:
         payload = await request.json()
+        update_id = payload.get("update_id")
+        if not isinstance(update_id, int):
+            raise HTTPException(status_code=400, detail="Missing update_id")
+
+        db = request.app.state.db
+        claimed = await db.claim_telegram_update(update_id)
+        if not claimed:
+            log.info("Duplicate Telegram update ignored (update_id=%s)", update_id)
+            return {"ok": True}
+
         telegram_app = request.app.state.telegram_app
+        update = Update.de_json(payload, telegram_app.bot)
+        message = update.effective_message
+        message_id = message.message_id if message else None
 
-        update = Update.de_json(
-            payload,
-            telegram_app.bot,
+        log.info(
+            "Processing Telegram update (update_id=%s, message_id=%s)",
+            update_id,
+            message_id,
         )
 
-        await telegram_app.process_update(update)
+        try:
+            await telegram_app.process_update(update)
+        except Exception as exc:
+            await db.release_telegram_update(update_id)
+            log.warning(
+                "Webhook processing failed (update_id=%s, type=%s)",
+                update_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(status_code=500, detail="Update processing failed")
 
+        try:
+            await db.complete_telegram_update(update_id)
+        except Exception as exc:
+            # The reply may already have been sent. Keep the processing lease
+            # rather than inviting an immediate duplicate on Telegram retry.
+            log.error(
+                "Could not mark Telegram update complete (update_id=%s, type=%s)",
+                update_id,
+                type(exc).__name__,
+            )
+
+    except HTTPException:
+        raise
     except Exception as exc:
-        log.warning(
-            "Webhook update failed (%s)",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid update",
-        )
+        log.warning("Webhook request failed (type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Invalid webhook request")
 
     return {"ok": True}

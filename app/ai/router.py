@@ -288,6 +288,52 @@ class AIRouter:
         )
 
     @classmethod
+    def _failure_diagnostics(cls, exc):
+        """Return bounded, non-sensitive provider failure metadata for logs."""
+        response = getattr(exc, "response", None)
+        status = cls._status_code(exc)
+
+        if isinstance(exc, httpx.TimeoutException):
+            category = "timeout"
+        elif isinstance(exc, httpx.NetworkError):
+            category = "network"
+        elif isinstance(exc, httpx.HTTPStatusError):
+            category = "http_status"
+        elif isinstance(exc, RuntimeError):
+            message = str(exc).lower()
+            if "empty" in message or "null content" in message:
+                category = "empty_response"
+            elif "unexpected response" in message or "invalid message" in message or "unsupported content" in message or "no choices" in message:
+                category = "invalid_response"
+            else:
+                category = "provider_runtime_error"
+        else:
+            category = "unexpected_error"
+
+        headers = getattr(response, "headers", {}) or {}
+        request_id = None
+        for header in ("x-request-id", "request-id", "nv-request-id"):
+            value = headers.get(header)
+            if value:
+                # Request IDs are useful for provider support; strip unsafe chars.
+                safe = "".join(
+                    char for char in str(value)
+                    if char.isalnum() or char in "-_."
+                )
+                request_id = safe[:80] or None
+                break
+
+        body = getattr(response, "content", None)
+        body_bytes = len(body) if isinstance(body, (bytes, bytearray)) else None
+
+        return {
+            "category": category,
+            "status": status,
+            "response_bytes": body_bytes,
+            "request_id": request_id,
+        }
+
+    @classmethod
     def _is_retryable(cls, exc):
         status = cls._status_code(exc)
 
@@ -367,15 +413,19 @@ class AIRouter:
 
             except Exception as exc:
                 elapsed = time.monotonic() - started
-                status = self._status_code(exc)
+                details = self._failure_diagnostics(exc)
 
                 log.warning(
                     "AI provider %s failed "
-                    "(attempt=%s, type=%s, status=%s, elapsed=%.2fs)",
+                    "(attempt=%s, type=%s, category=%s, status=%s, "
+                    "response_bytes=%s, request_id=%s, elapsed=%.2fs)",
                     name,
                     attempt,
                     type(exc).__name__,
-                    status,
+                    details["category"],
+                    details["status"],
+                    details["response_bytes"],
+                    details["request_id"],
                     elapsed
                 )
 

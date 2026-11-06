@@ -35,7 +35,7 @@ async def test_claim_update_returns_token_when_inserted():
     query, args = pool.fetchrow_calls[0]
     assert "claim_token" in query
     assert "on conflict (update_id) do update" in query.lower()
-    assert "RETURNING claim_token" in query
+    assert "returning claim_token" in query.lower()
     assert args[0] == 123
     assert isinstance(args[1], uuid.UUID)
 
@@ -59,8 +59,8 @@ async def test_complete_update_is_fenced_by_claim_token():
     await db.complete_telegram_update(123, token)
 
     query, args = pool.execute_calls[0]
-    assert "status='completed'" in query
-    assert "claim_token=$2" in query
+    assert "status='completed'" in query.lower()
+    assert "claim_token=$2" in query.lower()
     assert args == (123, token)
 
 
@@ -74,6 +74,6 @@ async def test_fail_update_is_fenced_by_claim_token():
     await db.fail_telegram_update(123, token, "handler_error")
 
     query, args = pool.execute_calls[0]
-    assert "status='failed'" in query
+    assert "status='failed'" in query.lower()
     assert "claim_token=$2" in query
     assert args == (123, token, "handler_error")

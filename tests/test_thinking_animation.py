@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 
 import pytest
@@ -21,10 +22,11 @@ class FakeSentAnimation:
 class FakeMessage:
     def __init__(self):
         self.sent = []
+        self.sent_message = FakeSentAnimation()
 
     async def reply_animation(self, *, animation, disable_notification):
         self.sent.append((animation, disable_notification))
-        return FakeSentAnimation()
+        return self.sent_message
 
 
 @pytest.mark.asyncio
@@ -52,6 +54,7 @@ async def test_thinking_animation_is_removed_after_reply(monkeypatch):
 
     # The fake Telegram message is returned by the task and deleted by cleanup.
     assert len(message.sent) == 1
+    assert message.sent_message.deleted is True
 
 
 @pytest.mark.asyncio
@@ -63,3 +66,10 @@ async def test_fast_reply_cancels_pending_thinking_animation(monkeypatch):
     await main.stop_thinking_animation(task)
 
     assert message.sent == []
+
+
+def test_thinking_gif_asset_is_a_valid_animated_gif():
+    encoded = main.THINKING_ANIMATION_ASSET.read_text(encoding="ascii").strip()
+    payload = base64.b64decode(encoded, validate=True)
+    assert payload.startswith((b"GIF87a", b"GIF89a"))
+    assert payload.endswith(b";")

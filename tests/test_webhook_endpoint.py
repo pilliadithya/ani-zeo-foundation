@@ -165,3 +165,74 @@ async def test_webhook_times_out_and_releases_claim(configured_app, monkeypatch)
     assert response.status_code == 500
     assert configured_app.test_db.failed[0][0] == 7001
     assert configured_app.test_db.completed == []
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_oversized_chunked_body_without_content_length(configured_app):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    configured_app.test_db = FakeDatabase()
+    configured_app.test_telegram_app = FakeTelegramApp()
+
+    # Deliberately omit Content-Length and deliver the payload in separate
+    # ASGI messages, as a chunked transfer could arrive at the server.
+    chunks = [
+        b" " * 600_000,
+        b" " * 450_000 + b'{"update_id":7001}',
+    ]
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if sent:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        sent = True
+        # Yield one chunk at a time so the route must enforce its limit while
+        # streaming rather than after buffering the complete request.
+        async def messages():
+            for index, chunk in enumerate(chunks):
+                yield {
+                    "type": "http.request",
+                    "body": chunk,
+                    "more_body": index < len(chunks) - 1,
+                }
+        # The Request stream calls receive repeatedly; retain the iterator.
+        return await iterator.__anext__()
+
+    iterator = iter(())  # replaced below with an async iterator
+    async def chunk_messages():
+        for index, chunk in enumerate(chunks):
+            yield {
+                "type": "http.request",
+                "body": chunk,
+                "more_body": index < len(chunks) - 1,
+            }
+    iterator = chunk_messages().__aiter__()
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/telegram/webhook",
+        "raw_path": b"/telegram/webhook",
+        "query_string": b"",
+        "headers": [
+            (b"x-telegram-bot-api-secret-token", b"test-webhook-secret"),
+            (b"transfer-encoding", b"chunked"),
+        ],
+        "server": ("test", 80),
+        "client": ("127.0.0.1", 12345),
+        "root_path": "",
+        "app": configured_app,
+    }
+    request = Request(scope, receive)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await main_module.telegram_webhook(request)
+
+    assert exc_info.value.status_code == 413
+    assert configured_app.test_db.claim_calls == []
+    assert configured_app.test_telegram_app.processed == []

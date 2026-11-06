@@ -29,6 +29,47 @@ class Database:
             raise RuntimeError("Database is not connected")
         return self.pool
 
+    async def claim_telegram_update(self, update_id: int) -> bool:
+        """Atomically claim a Telegram update; reject duplicates already in flight or done."""
+        row = await self._pool().fetchrow(
+            """insert into public.processed_telegram_updates
+                (update_id, status, attempts, claimed_at)
+            values ($1, 'processing', 1, now())
+            on conflict (update_id) do update set
+                status='processing',
+                attempts=public.processed_telegram_updates.attempts + 1,
+                claimed_at=now(),
+                last_error=null
+            where public.processed_telegram_updates.status='failed'
+               or (
+                    public.processed_telegram_updates.status='processing'
+                    and public.processed_telegram_updates.claimed_at
+                        < now() - interval '10 minutes'
+               )
+            returning update_id""",
+            update_id,
+        )
+        return row is not None
+
+    async def complete_telegram_update(self, update_id: int):
+        await self._pool().execute(
+            """update public.processed_telegram_updates
+            set status='completed', completed_at=now(), last_error=null
+            where update_id=$1""",
+            update_id,
+        )
+
+    async def fail_telegram_update(self, update_id: int, error_label: str):
+        # Store only a bounded, non-sensitive error category; never raw exception text.
+        safe_label = (error_label or "processing_error")[:80]
+        await self._pool().execute(
+            """update public.processed_telegram_updates
+            set status='failed', last_error=$2
+            where update_id=$1 and status='processing'""",
+            update_id,
+            safe_label,
+        )
+
     async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):
         await self._pool().execute(
             """insert into public.user_profiles (telegram_user_id, username, display_name)

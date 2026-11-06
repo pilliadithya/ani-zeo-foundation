@@ -1,3 +1,4 @@
+import asyncio
 import html
 import json
 import logging
@@ -47,6 +48,7 @@ ANILIST_URL = "https://graphql.anilist.co"
 # Telegram messages have a 4096-character limit. Keep a margin for safety.
 TELEGRAM_MESSAGE_LIMIT = 3500
 MAX_WEBHOOK_BODY_BYTES = 1_048_576
+WEBHOOK_PROCESSING_TIMEOUT_SECONDS = 120
 
 WATCH_ORDER_PHRASES = (
     "watch order",
@@ -634,15 +636,25 @@ async def telegram_webhook(request: Request):
     content_length = request.headers.get("content-length")
     if content_length:
         try:
-            if int(content_length) > MAX_WEBHOOK_BODY_BYTES:
-                raise HTTPException(status_code=413, detail="Payload too large")
+            declared_length = int(content_length)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Payload too large")
 
     try:
-        raw_body = await request.body()
-        if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
-            raise HTTPException(status_code=413, detail="Payload too large")
+        # Stream and cap the body while reading. Checking request.body() after
+        # buffering would still allow an oversized chunked request to consume memory.
+        body_chunks = []
+        body_size = 0
+        async for chunk in request.stream():
+            body_size += len(chunk)
+            if body_size > MAX_WEBHOOK_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Payload too large")
+            body_chunks.append(chunk)
+        raw_body = b"".join(body_chunks)
         payload = json.loads(raw_body)
         if not isinstance(payload, dict):
             raise ValueError("Telegram update must be a JSON object")
@@ -671,7 +683,12 @@ async def telegram_webhook(request: Request):
     try:
         failed_update_ids = telegram_app.bot_data.setdefault("failed_update_ids", set())
         failed_update_ids.discard(update.update_id)
-        await telegram_app.process_update(update)
+        # The processing timeout is far shorter than the 10-minute database lease.
+        # This prevents a live worker from outlasting its claim and being reclaimed.
+        await asyncio.wait_for(
+            telegram_app.process_update(update),
+            timeout=WEBHOOK_PROCESSING_TIMEOUT_SECONDS,
+        )
 
         # PTB routes callback exceptions through process_error() instead of
         # re-raising them from process_update(). Check the registered error hook

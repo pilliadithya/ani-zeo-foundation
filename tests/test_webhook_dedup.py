@@ -71,9 +71,16 @@ async def test_release_telegram_update_removes_failed_claim():
 # requires a separate test database to validate end-to-end.
 import asyncio
 from types import SimpleNamespace
+import os
 
 import httpx
 from fastapi import FastAPI
+
+# app.main creates Settings at import time; provide non-secret test-only
+# values so endpoint tests do not require production credentials.
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
+os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from app import main as main_module
 

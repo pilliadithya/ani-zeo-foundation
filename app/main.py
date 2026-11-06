@@ -2,6 +2,7 @@ import html
 import json
 import logging
 import re
+import secrets
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -45,6 +46,7 @@ ANILIST_URL = "https://graphql.anilist.co"
 
 # Telegram messages have a 4096-character limit. Keep a margin for safety.
 TELEGRAM_MESSAGE_LIMIT = 3500
+MAX_WEBHOOK_BODY_BYTES = 1_048_576
 
 WATCH_ORDER_PHRASES = (
     "watch order",
@@ -609,14 +611,24 @@ async def telegram_webhook(request: Request):
         "X-Telegram-Bot-Api-Secret-Token"
     )
 
-    if not secret or secret != settings.webhook_secret:
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden",
-        )
+    if not secret or not secrets.compare_digest(secret, settings.webhook_secret):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_WEBHOOK_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid content length")
 
     try:
-        payload = await request.json()
+        raw_body = await request.body()
+        if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Payload too large")
+        payload = json.loads(raw_body)
+        if not isinstance(payload, dict):
+            raise ValueError("Telegram update must be a JSON object")
         telegram_app = request.app.state.telegram_app
         update = Update.de_json(payload, telegram_app.bot)
     except Exception as exc:

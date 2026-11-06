@@ -31,13 +31,13 @@ async def test_claim_update_returns_token_when_inserted():
     db = Database(FakeSettings())
     db.pool = pool
 
-    assert await db.claim_telegram_update(123) == str(token)
+    assert await db.claim_telegram_update(123) == token
     query, args = pool.fetchrow_calls[0]
     assert "claim_token" in query
     assert "on conflict (update_id) do update" in query.lower()
     assert "returning claim_token" in query.lower()
     assert args[0] == 123
-    assert isinstance(args[1], uuid.UUID)
+    assert args[1] == token
 
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_complete_update_is_fenced_by_claim_token():
     pool = FakePool()
     db = Database(FakeSettings())
     db.pool = pool
-    token = str(uuid.uuid4())
+    token = uuid.uuid4()
 
     await db.complete_telegram_update(123, token)
 
@@ -75,5 +75,5 @@ async def test_fail_update_is_fenced_by_claim_token():
 
     query, args = pool.execute_calls[0]
     assert "status='failed'" in query.lower()
-    assert "claim_token=$2" in query
+    assert "claim_token=$2" in query.lower()
     assert args == (123, token, "handler_error")

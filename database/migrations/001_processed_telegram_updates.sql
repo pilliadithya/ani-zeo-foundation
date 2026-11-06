@@ -38,5 +38,14 @@ alter table public.processed_telegram_updates
   alter column claimed_at set default now(),
   alter column created_at set default now();
 
+-- Older installations may have had a narrower status check that rejected
+-- 'failed', preventing retry/recovery state from being recorded.
+alter table public.processed_telegram_updates
+  drop constraint if exists processed_telegram_updates_status_check;
+
+alter table public.processed_telegram_updates
+  add constraint processed_telegram_updates_status_check
+  check (status in ('processing', 'completed', 'failed'));
+
 create index if not exists processed_telegram_updates_created_idx
   on public.processed_telegram_updates (created_at);

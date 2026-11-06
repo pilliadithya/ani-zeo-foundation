@@ -18,6 +18,22 @@ class Database:
                 command_timeout=15,
                 ssl="require",
             )
+            await self._pool().execute(
+                """
+                create table if not exists public.processed_telegram_updates (
+                    update_id bigint primary key,
+                    status text not null check (status in ('processing', 'completed')),
+                    claimed_at timestamptz not null default now(),
+                    completed_at timestamptz
+                )
+                """
+            )
+            await self._pool().execute(
+                """
+                create index if not exists processed_telegram_updates_claimed_idx
+                on public.processed_telegram_updates (claimed_at)
+                """
+            )
 
     async def close(self):
         if self.pool:
@@ -28,6 +44,50 @@ class Database:
         if not self.pool:
             raise RuntimeError("Database is not connected")
         return self.pool
+
+    async def claim_telegram_update(self, update_id: int) -> bool:
+        """Atomically claim an update; reject duplicates and active claims."""
+        row = await self._pool().fetchrow(
+            """
+            insert into public.processed_telegram_updates (update_id, status)
+            values ($1, 'processing')
+            on conflict (update_id) do update
+              set status='processing', claimed_at=now(), completed_at=null
+              where processed_telegram_updates.status <> 'completed'
+                and processed_telegram_updates.claimed_at < now() - interval '10 minutes'
+            returning update_id
+            """,
+            update_id,
+        )
+        # Bound table growth without affecting recent duplicate protection.
+        await self._pool().execute(
+            """
+            delete from public.processed_telegram_updates
+            where status='completed'
+              and completed_at < now() - interval '14 days'
+            """
+        )
+        return row is not None
+
+    async def complete_telegram_update(self, update_id: int) -> None:
+        await self._pool().execute(
+            """
+            update public.processed_telegram_updates
+            set status='completed', completed_at=now()
+            where update_id=$1 and status='processing'
+            """,
+            update_id,
+        )
+
+    async def release_telegram_update(self, update_id: int) -> None:
+        """Release a failed claim so Telegram's retry can process it."""
+        await self._pool().execute(
+            """
+            delete from public.processed_telegram_updates
+            where update_id=$1 and status='processing'
+            """,
+            update_id,
+        )
 
     async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):
         await self._pool().execute(

@@ -10,8 +10,8 @@ class FakePool:
         self.fetch_calls = []
         self.execute_calls = []
 
-    async def fetchrow(self, query, update_id):
-        self.fetch_calls.append((query, update_id))
+    async def fetchrow(self, query, *args):
+        self.fetch_calls.append((query, *args))
         return self.claim_result
 
     async def execute(self, query, *args):
@@ -27,8 +27,9 @@ async def test_claim_telegram_update_returns_true_for_new_update():
     claimed = await db.claim_telegram_update(123)
 
     assert claimed == str(token)
-    query, update_id = db.pool.fetch_calls[0]
+    query, update_id, token_arg = db.pool.fetch_calls[0]
     assert update_id == 123
+    assert token_arg == token
     assert "on conflict (update_id) do update" in query.lower()
     assert "status <> 'completed'" in query.lower()
     assert "interval '10 minutes'" in query.lower()

@@ -70,7 +70,6 @@ async def test_release_telegram_update_removes_failed_claim():
 # The database is an in-memory atomic fake; PostgreSQL concurrency still
 # requires a separate test database to validate end-to-end.
 import asyncio
-import json
 from types import SimpleNamespace
 
 import httpx
@@ -131,7 +130,7 @@ def make_webhook_client(monkeypatch, db, telegram_app):
             effective_message=SimpleNamespace(message_id=payload["update_id"])
         )
 
-    monkeypatch.setattr(main_module.Update, "de_json", fake_de_json)
+    monkeypatch.setattr(main_module.Update, "de_json", staticmethod(fake_de_json))
     transport = httpx.ASGITransport(app=api)
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 

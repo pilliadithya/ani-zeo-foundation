@@ -624,11 +624,38 @@ async def telegram_webhook(request: Request):
             telegram_app.bot,
         )
 
-        await telegram_app.process_update(update)
+        if update is None or update.update_id is None:
+            raise HTTPException(status_code=400, detail="Invalid update")
 
+        db = request.app.state.db
+        claimed = await db.claim_telegram_update(update.update_id)
+
+        if not claimed:
+            log.info("Duplicate Telegram update ignored (update_id=%s)", update.update_id)
+            return {"ok": True, "duplicate": True}
+
+        try:
+            await telegram_app.process_update(update)
+            await db.complete_telegram_update(update.update_id)
+        except Exception as exc:
+            await db.fail_telegram_update(
+                update.update_id,
+                f"dispatch_{type(exc).__name__}",
+            )
+            log.warning(
+                "Webhook update processing failed (type=%s)",
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Update processing failed",
+            )
+
+    except HTTPException:
+        raise
     except Exception as exc:
         log.warning(
-            "Webhook update failed (%s)",
+            "Webhook update rejected (%s)",
             type(exc).__name__,
         )
         raise HTTPException(

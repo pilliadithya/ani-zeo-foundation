@@ -31,7 +31,7 @@ class Database:
             raise RuntimeError("Database is not connected")
         return self.pool
 
-    async def claim_telegram_update(self, update_id: int) -> str | None:
+    async def claim_telegram_update(self, update_id: int) -> uuid.UUID | None:
         """Atomically claim an update and return its fencing token; None means duplicate."""
         claim_token = uuid.uuid4()
         row = await self._pool().fetchrow(
@@ -54,9 +54,9 @@ class Database:
             update_id,
             claim_token,
         )
-        return str(row["claim_token"]) if row else None
+        return row["claim_token"] if row else None
 
-    async def complete_telegram_update(self, update_id: int, claim_token: str):
+    async def complete_telegram_update(self, update_id: int, claim_token: uuid.UUID):
         """Complete only the claim still owned by this webhook attempt."""
         await self._pool().execute(
             """update public.processed_telegram_updates
@@ -67,7 +67,7 @@ class Database:
         )
 
     async def fail_telegram_update(
-        self, update_id: int, claim_token: str, error_label: str
+        self, update_id: int, claim_token: uuid.UUID, error_label: str
     ):
         # Store only a bounded, non-sensitive error category; never raw exception text.
         safe_label = (error_label or "processing_error")[:80]

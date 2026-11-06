@@ -98,8 +98,9 @@ class AIRouter:
     SUMMARY_MAX_CHARS = 1_200
 
     # Provider-specific timeouts.
-    NVIDIA_TIMEOUT = 60.0
-    NVIDIA_RETRY_TIMEOUT = 35.0
+    # Keep a slow optional fallback from holding Telegram replies for a minute.
+    NVIDIA_TIMEOUT = 22.0
+    NVIDIA_RETRY_TIMEOUT = 10.0
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 2
@@ -383,6 +384,11 @@ class AIRouter:
                     attempt >= self.MAX_ATTEMPTS
                     or not self._is_retryable(exc)
                 ):
+                    raise
+
+                # A second long NVIDIA request delays the next fallback.
+                if name == "nvidia" and isinstance(exc, httpx.TimeoutException):
+                    log.warning("NVIDIA timeout; skipping retry and moving to fallback")
                     raise
 
                 delay = self._retry_delay(exc, attempt)

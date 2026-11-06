@@ -1,4 +1,5 @@
 import pytest
+import uuid
 
 from app.db import Database
 
@@ -20,11 +21,12 @@ class FakePool:
 @pytest.mark.asyncio
 async def test_claim_telegram_update_returns_true_for_new_update():
     db = Database(settings=None)
-    db.pool = FakePool({"update_id": 123})
+    token = uuid.uuid4()
+    db.pool = FakePool({"claim_token": token})
 
     claimed = await db.claim_telegram_update(123)
 
-    assert claimed is True
+    assert claimed == str(token)
     query, update_id = db.pool.fetch_calls[0]
     assert update_id == 123
     assert "on conflict (update_id) do update" in query.lower()
@@ -47,11 +49,11 @@ async def test_complete_telegram_update_marks_claim_completed():
     db = Database(settings=None)
     db.pool = FakePool()
 
-    await db.complete_telegram_update(456)
+    await db.complete_telegram_update(456, str(uuid.uuid4()))
 
     query, args = db.pool.execute_calls[0]
     assert "set status='completed'" in query.lower()
-    assert args == (456,)
+    assert args[0] == 456 and isinstance(args[1], uuid.UUID)
 
 
 @pytest.mark.asyncio
@@ -59,11 +61,11 @@ async def test_release_telegram_update_removes_failed_claim():
     db = Database(settings=None)
     db.pool = FakePool()
 
-    await db.release_telegram_update(789)
+    await db.release_telegram_update(789, str(uuid.uuid4()))
 
     query, args = db.pool.execute_calls[0]
     assert "delete from public.processed_telegram_updates" in query.lower()
-    assert args == (789,)
+    assert args[0] == 789 and isinstance(args[1], uuid.UUID)
 
 
 # Exercise the real FastAPI webhook endpoint with concurrent ASGI requests.
@@ -95,17 +97,22 @@ class AtomicFakeDatabase:
         async with self.lock:
             if update_id in self.claimed or update_id in self.completed:
                 return False
+            token = str(uuid.uuid4())
             self.claimed.add(update_id)
-            return True
+            self.tokens = getattr(self, 'tokens', {})
+            self.tokens[update_id] = token
+            return token
 
-    async def complete_telegram_update(self, update_id):
+    async def complete_telegram_update(self, update_id, claim_token):
         async with self.lock:
-            self.claimed.discard(update_id)
-            self.completed.add(update_id)
+            if self.tokens.get(update_id) == claim_token:
+                self.claimed.discard(update_id)
+                self.completed.add(update_id)
 
-    async def release_telegram_update(self, update_id):
+    async def release_telegram_update(self, update_id, claim_token):
         async with self.lock:
-            self.claimed.discard(update_id)
+            if self.tokens.get(update_id) == claim_token:
+                self.claimed.discard(update_id)
 
 
 class CountingTelegramApp:
@@ -198,6 +205,7 @@ async def test_postgres_atomically_claims_concurrent_duplicate_updates():
             create table if not exists public.processed_telegram_updates (
                 update_id bigint primary key,
                 status text not null check (status in ('processing', 'completed')),
+                claim_token uuid not null,
                 claimed_at timestamptz not null default now(),
                 completed_at timestamptz
             )
@@ -205,17 +213,17 @@ async def test_postgres_atomically_claims_concurrent_duplicate_updates():
         )
 
         claim_sql = """
-            insert into public.processed_telegram_updates (update_id, status)
-            values ($1, 'processing')
+            insert into public.processed_telegram_updates (update_id, status, claim_token)
+            values ($1, 'processing', $2)
             on conflict (update_id) do update
-              set status='processing', claimed_at=now(), completed_at=null
+              set status='processing', claim_token=$2, claimed_at=now(), completed_at=null
               where processed_telegram_updates.status <> 'completed'
                 and processed_telegram_updates.claimed_at < now() - interval '10 minutes'
             returning update_id
         """
 
         async def claim():
-            return await connection.fetchrow(claim_sql, update_id)
+            return await connection.fetchrow(claim_sql, update_id, uuid.uuid4())
 
         # Separate PostgreSQL connections are required to test real concurrent
         # transactions, rather than serializing through one connection.
@@ -223,7 +231,7 @@ async def test_postgres_atomically_claims_concurrent_duplicate_updates():
         try:
             async def pool_claim():
                 async with pool.acquire() as conn:
-                    return await conn.fetchrow(claim_sql, update_id)
+                    return await conn.fetchrow(claim_sql, update_id, uuid.uuid4())
 
             results = await asyncio.gather(pool_claim(), pool_claim())
             assert sum(result is not None for result in results) == 1

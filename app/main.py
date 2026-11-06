@@ -628,22 +628,23 @@ async def telegram_webhook(request: Request):
 
     db = request.app.state.db
     try:
-        claimed = await db.claim_telegram_update(update.update_id)
+        claim_token = await db.claim_telegram_update(update.update_id)
     except Exception as exc:
         log.error("Webhook idempotency storage unavailable (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Temporarily unavailable")
 
-    if not claimed:
+    if claim_token is None:
         log.info("Duplicate Telegram update ignored (update_id=%s)", update.update_id)
         return {"ok": True, "duplicate": True}
 
     try:
         await telegram_app.process_update(update)
-        await db.complete_telegram_update(update.update_id)
+        await db.complete_telegram_update(update.update_id, claim_token)
     except Exception as exc:
         try:
             await db.fail_telegram_update(
                 update.update_id,
+                claim_token,
                 f"dispatch_{type(exc).__name__}",
             )
         except Exception as storage_exc:

@@ -72,7 +72,7 @@ async def test_fail_update_is_fenced_by_claim_token():
     pool = FakePool()
     db = Database(FakeSettings())
     db.pool = pool
-    token = str(uuid.uuid4())
+    token = uuid.uuid4()
 
     await db.fail_telegram_update(123, token, "handler_error")
 

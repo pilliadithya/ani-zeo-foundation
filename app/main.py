@@ -628,14 +628,39 @@ async def telegram_webhook(request: Request):
             log.info("Duplicate Telegram update ignored (update_id=%s)", update_id)
             return {"ok": True}
 
+        telegram_app = request.app.state.telegram_app
+        try:
+            update = Update.de_json(payload, telegram_app.bot)
+        except Exception as exc:
+            await db.release_telegram_update(update_id, claim_token)
+            log.warning(
+                "Telegram update deserialization failed (update_id=%s, type=%s)",
+                update_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(status_code=400, detail="Invalid Telegram update")
+
+        message = update.effective_message
+        message_id = message.message_id if message else None
+        log.info(
+            "Processing Telegram update (update_id=%s, message_id=%s)",
+            update_id,
+            message_id,
+        )
+
         async def renew_claim():
             while True:
                 await asyncio.sleep(60)
                 try:
                     renewed = await db.renew_telegram_update(update_id, claim_token)
                     if not renewed:
-                        log.error("Webhook claim ownership lost (update_id=%s)", update_id)
+                        log.error(
+                            "Webhook claim ownership lost (update_id=%s)",
+                            update_id,
+                        )
                         return
+                except asyncio.CancelledError:
+                    raise
                 except Exception as heartbeat_exc:
                     log.error(
                         "Webhook claim heartbeat failed (update_id=%s, type=%s)",
@@ -644,50 +669,44 @@ async def telegram_webhook(request: Request):
                     )
 
         heartbeat = asyncio.create_task(renew_claim())
-        telegram_app = request.app.state.telegram_app
-        update = Update.de_json(payload, telegram_app.bot)
-        message = update.effective_message
-        message_id = message.message_id if message else None
-
-        log.info(
-            "Processing Telegram update (update_id=%s, message_id=%s)",
-            update_id,
-            message_id,
-        )
-
         try:
-            await telegram_app.process_update(update)
-        except Exception as exc:
-            heartbeat.cancel()
             try:
-                await heartbeat
-            except asyncio.CancelledError:
-                pass
-            await db.release_telegram_update(update_id, claim_token)
-            log.warning(
-                "Webhook processing failed (update_id=%s, type=%s)",
-                update_id,
-                type(exc).__name__,
-            )
-            raise HTTPException(status_code=500, detail="Update processing failed")
+                await telegram_app.process_update(update)
+            except Exception as exc:
+                try:
+                    await db.release_telegram_update(update_id, claim_token)
+                except Exception as release_exc:
+                    log.error(
+                        "Could not release failed webhook claim (update_id=%s, type=%s)",
+                        update_id,
+                        type(release_exc).__name__,
+                    )
+                log.warning(
+                    "Webhook processing failed (update_id=%s, type=%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Update processing failed",
+                )
 
+            try:
+                await db.complete_telegram_update(update_id, claim_token)
+            except Exception as exc:
+                # A reply may already have been sent. Keep the lease so an
+                # immediate Telegram retry cannot trigger a duplicate reply.
+                log.error(
+                    "Could not mark Telegram update complete (update_id=%s, type=%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
         finally:
             heartbeat.cancel()
             try:
                 await heartbeat
             except asyncio.CancelledError:
                 pass
-
-        try:
-            await db.complete_telegram_update(update_id, claim_token)
-        except Exception as exc:
-            # The reply may already have been sent. Keep the processing lease
-            # rather than inviting an immediate duplicate on Telegram retry.
-            log.error(
-                "Could not mark Telegram update complete (update_id=%s, type=%s)",
-                update_id,
-                type(exc).__name__,
-            )
 
     except HTTPException:
         raise

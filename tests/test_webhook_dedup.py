@@ -132,7 +132,7 @@ def make_webhook_client(monkeypatch, db, telegram_app):
         methods=["POST"],
     )
 
-    async def fake_de_json(payload, bot):
+    def fake_de_json(payload, bot):
         return SimpleNamespace(
             effective_message=SimpleNamespace(message_id=payload["update_id"])
         )

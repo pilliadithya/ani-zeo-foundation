@@ -30,3 +30,16 @@ create table if not exists public.user_memories (
   unique (telegram_user_id, memory_key)
 );
 -- Use this database server-side only. Never expose a privileged database credential to clients.
+
+create table if not exists public.processed_telegram_updates (
+  update_id bigint primary key,
+  status text not null default 'processing'
+    check (status in ('processing', 'completed', 'failed')),
+  attempts integer not null default 1 check (attempts > 0),
+  claimed_at timestamptz not null default now(),
+  completed_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now()
+);
+create index if not exists processed_telegram_updates_created_idx
+  on public.processed_telegram_updates (created_at);

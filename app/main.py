@@ -399,6 +399,20 @@ async def send_formatted_answer(message, answer: str) -> None:
             await message.reply_text(chunk)
 
 
+async def telegram_error_handler(update: object, context) -> None:
+    """Record uncaught PTB handler errors so the webhook can request a retry."""
+    update_id = getattr(update, "update_id", None)
+    if update_id is not None:
+        context.application.bot_data.setdefault("failed_update_ids", set()).add(update_id)
+
+    error = getattr(context, "error", None)
+    log.error(
+        "Telegram handler failed (update_id=%s, error_type=%s)",
+        update_id,
+        type(error).__name__ if error else "unknown",
+    )
+
+
 async def chat_message(update: Update, context) -> None:
     message = update.effective_message
     user = update.effective_user
@@ -560,6 +574,9 @@ async def lifespan(app: FastAPI):
         )
     )
 
+    # Route uncaught handler errors back to the webhook delivery outcome.
+    telegram_app.add_error_handler(telegram_error_handler)
+
     # Normal text messages
     telegram_app.add_handler(
         MessageHandler(
@@ -653,7 +670,23 @@ async def telegram_webhook(request: Request):
 
     try:
         await telegram_app.process_update(update)
+
+        # PTB routes callback exceptions through process_error() instead of
+        # re-raising them from process_update(). Check the registered error hook
+        # before acknowledging the webhook so Telegram can retry failed updates.
+        failed_update_ids = telegram_app.bot_data.setdefault("failed_update_ids", set())
+        if update.update_id in failed_update_ids:
+            failed_update_ids.discard(update.update_id)
+            await db.fail_telegram_update(
+                update.update_id,
+                claim_token,
+                "handler_error",
+            )
+            raise HTTPException(status_code=500, detail="Update processing failed")
+
         await db.complete_telegram_update(update.update_id, claim_token)
+    except HTTPException:
+        raise
     except Exception as exc:
         try:
             await db.fail_telegram_update(

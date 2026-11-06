@@ -29,7 +29,8 @@ async def test_claim_telegram_update_returns_true_for_new_update():
     assert claimed == str(token)
     query, update_id, token_arg = db.pool.fetch_calls[0]
     assert update_id == 123
-    assert token_arg == token
+    assert isinstance(token_arg, uuid.UUID)
+    assert token_arg != token  # Database creates its own unique ownership token.
     assert "on conflict (update_id) do update" in query.lower()
     assert "status <> 'completed'" in query.lower()
     assert "interval '10 minutes'" in query.lower()
@@ -42,7 +43,7 @@ async def test_claim_telegram_update_returns_false_for_duplicate():
 
     claimed = await db.claim_telegram_update(123)
 
-    assert claimed is False
+    assert claimed is None
 
 
 @pytest.mark.asyncio

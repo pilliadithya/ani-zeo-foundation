@@ -663,7 +663,9 @@ async def telegram_webhook(request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        log.warning("Webhook request failed (type=%s)", type(exc).__name__)
-        raise HTTPException(status_code=400, detail="Invalid webhook request")
+        # Transient database or processing infrastructure errors should be
+        # retried by Telegram; malformed payloads are rejected above.
+        log.warning("Webhook infrastructure failed (type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Webhook processing unavailable")
 
     return {"ok": True}

@@ -618,49 +618,38 @@ async def telegram_webhook(request: Request):
     try:
         payload = await request.json()
         telegram_app = request.app.state.telegram_app
+        update = Update.de_json(payload, telegram_app.bot)
+    except Exception as exc:
+        log.warning("Webhook payload rejected (%s)", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Invalid update")
 
-        update = Update.de_json(
-            payload,
-            telegram_app.bot,
-        )
+    if update is None or update.update_id is None:
+        raise HTTPException(status_code=400, detail="Invalid update")
 
-        if update is None or update.update_id is None:
-            raise HTTPException(status_code=400, detail="Invalid update")
-
-        db = request.app.state.db
+    db = request.app.state.db
+    try:
         claimed = await db.claim_telegram_update(update.update_id)
+    except Exception as exc:
+        log.error("Webhook idempotency storage unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Temporarily unavailable")
 
-        if not claimed:
-            log.info("Duplicate Telegram update ignored (update_id=%s)", update.update_id)
-            return {"ok": True, "duplicate": True}
+    if not claimed:
+        log.info("Duplicate Telegram update ignored (update_id=%s)", update.update_id)
+        return {"ok": True, "duplicate": True}
 
+    try:
+        await telegram_app.process_update(update)
+        await db.complete_telegram_update(update.update_id)
+    except Exception as exc:
         try:
-            await telegram_app.process_update(update)
-            await db.complete_telegram_update(update.update_id)
-        except Exception as exc:
             await db.fail_telegram_update(
                 update.update_id,
                 f"dispatch_{type(exc).__name__}",
             )
-            log.warning(
-                "Webhook update processing failed (type=%s)",
-                type(exc).__name__,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Update processing failed",
-            )
+        except Exception as storage_exc:
+            log.error("Could not release failed update claim (%s)", type(storage_exc).__name__)
 
-    except HTTPException:
-        raise
-    except Exception as exc:
-        log.warning(
-            "Webhook update rejected (%s)",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid update",
-        )
+        log.warning("Webhook update processing failed (type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Update processing failed")
 
     return {"ok": True}

@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from app.db import Database
@@ -23,48 +25,55 @@ class FakeSettings:
 
 
 @pytest.mark.asyncio
-async def test_claim_update_returns_true_when_inserted():
-    pool = FakePool(fetchrow_result={"update_id": 123})
+async def test_claim_update_returns_token_when_inserted():
+    token = uuid.uuid4()
+    pool = FakePool(fetchrow_result={"claim_token": token})
     db = Database(FakeSettings())
     db.pool = pool
 
-    assert await db.claim_telegram_update(123) is True
+    assert await db.claim_telegram_update(123) == str(token)
     query, args = pool.fetchrow_calls[0]
+    assert "claim_token" in query
     assert "ON CONFLICT (update_id) DO UPDATE" in query
-    assert "RETURNING update_id" in query
-    assert args == (123,)
+    assert "RETURNING claim_token" in query
+    assert args[0] == 123
+    assert isinstance(args[1], uuid.UUID)
 
 
 @pytest.mark.asyncio
-async def test_claim_update_returns_false_for_duplicate():
+async def test_claim_update_returns_none_for_duplicate():
     pool = FakePool(fetchrow_result=None)
     db = Database(FakeSettings())
     db.pool = pool
 
-    assert await db.claim_telegram_update(123) is False
+    assert await db.claim_telegram_update(123) is None
 
 
 @pytest.mark.asyncio
-async def test_complete_update_marks_update_completed():
+async def test_complete_update_is_fenced_by_claim_token():
     pool = FakePool()
     db = Database(FakeSettings())
     db.pool = pool
+    token = str(uuid.uuid4())
 
-    await db.complete_telegram_update(123)
+    await db.complete_telegram_update(123, token)
 
     query, args = pool.execute_calls[0]
     assert "status='completed'" in query
-    assert args == (123,)
+    assert "claim_token=$2" in query
+    assert args == (123, token)
 
 
 @pytest.mark.asyncio
-async def test_fail_update_records_safe_error_label():
+async def test_fail_update_is_fenced_by_claim_token():
     pool = FakePool()
     db = Database(FakeSettings())
     db.pool = pool
+    token = str(uuid.uuid4())
 
-    await db.fail_telegram_update(123, "handler_error")
+    await db.fail_telegram_update(123, token, "handler_error")
 
     query, args = pool.execute_calls[0]
     assert "status='failed'" in query
-    assert args == (123, "handler_error")
+    assert "claim_token=$2" in query
+    assert args == (123, token, "handler_error")

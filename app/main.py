@@ -669,6 +669,8 @@ async def telegram_webhook(request: Request):
         return {"ok": True, "duplicate": True}
 
     try:
+        failed_update_ids = telegram_app.bot_data.setdefault("failed_update_ids", set())
+        failed_update_ids.discard(update.update_id)
         await telegram_app.process_update(update)
 
         # PTB routes callback exceptions through process_error() instead of

@@ -36,6 +36,9 @@ async def test_claim_update_returns_token_when_inserted():
     assert "claim_token" in query
     assert "on conflict (update_id) do update" in query.lower()
     assert "returning claim_token" in query.lower()
+    assert "claim_token=excluded.claim_token" in query.lower()
+    assert "status='failed'" in query.lower()
+    assert "interval '10 minutes'" in query.lower()
     assert args[0] == 123
     assert args[1] == token
 

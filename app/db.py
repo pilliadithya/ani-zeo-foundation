@@ -1,4 +1,5 @@
 import asyncpg
+import uuid
 from app.config import Settings
 
 
@@ -23,6 +24,7 @@ class Database:
                 create table if not exists public.processed_telegram_updates (
                     update_id bigint primary key,
                     status text not null check (status in ('processing', 'completed')),
+                    claim_token uuid not null,
                     claimed_at timestamptz not null default now(),
                     completed_at timestamptz
                 )
@@ -45,21 +47,24 @@ class Database:
             raise RuntimeError("Database is not connected")
         return self.pool
 
-    async def claim_telegram_update(self, update_id: int) -> bool:
-        """Atomically claim an update; reject duplicates and active claims."""
+    async def claim_telegram_update(self, update_id: int) -> str | None:
+        """Return a unique ownership token, or None when already claimed/completed."""
+        token = uuid.uuid4()
         row = await self._pool().fetchrow(
             """
-            insert into public.processed_telegram_updates (update_id, status)
-            values ($1, 'processing')
+            insert into public.processed_telegram_updates
+                (update_id, status, claim_token)
+            values ($1, 'processing', $2)
             on conflict (update_id) do update
-              set status='processing', claimed_at=now(), completed_at=null
+              set status='processing', claim_token=$2, claimed_at=now(),
+                  completed_at=null
               where processed_telegram_updates.status <> 'completed'
                 and processed_telegram_updates.claimed_at < now() - interval '10 minutes'
-            returning update_id
+            returning claim_token
             """,
             update_id,
+            token,
         )
-        # Bound table growth without affecting recent duplicate protection.
         await self._pool().execute(
             """
             delete from public.processed_telegram_updates
@@ -67,26 +72,41 @@ class Database:
               and completed_at < now() - interval '14 days'
             """
         )
+        return str(row["claim_token"]) if row else None
+
+    async def renew_telegram_update(self, update_id: int, claim_token: str) -> bool:
+        row = await self._pool().fetchrow(
+            """
+            update public.processed_telegram_updates
+            set claimed_at=now()
+            where update_id=$1 and claim_token=$2 and status='processing'
+            returning update_id
+            """,
+            update_id,
+            uuid.UUID(claim_token),
+        )
         return row is not None
 
-    async def complete_telegram_update(self, update_id: int) -> None:
+    async def complete_telegram_update(self, update_id: int, claim_token: str) -> None:
         await self._pool().execute(
             """
             update public.processed_telegram_updates
             set status='completed', completed_at=now()
-            where update_id=$1 and status='processing'
+            where update_id=$1 and claim_token=$2 and status='processing'
             """,
             update_id,
+            uuid.UUID(claim_token),
         )
 
-    async def release_telegram_update(self, update_id: int) -> None:
-        """Release a failed claim so Telegram's retry can process it."""
+    async def release_telegram_update(self, update_id: int, claim_token: str) -> None:
+        """Release only this attempt's failed claim."""
         await self._pool().execute(
             """
             delete from public.processed_telegram_updates
-            where update_id=$1 and status='processing'
+            where update_id=$1 and claim_token=$2 and status='processing'
             """,
             update_id,
+            uuid.UUID(claim_token),
         )
 
     async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):

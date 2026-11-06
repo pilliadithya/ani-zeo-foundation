@@ -50,3 +50,55 @@ async def test_nvidia_timeout_skips_second_attempt_and_falls_back():
     assert answer == "Fallback reply"
     assert provider == "groq"
     assert nvidia.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_gemini_and_groq_fail_then_nvidia_succeeds():
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq", "nvidia"]
+    settings.nvidia_api_key = "nvidia-key"
+
+    router = AIRouter(settings)
+    router.providers["gemini"] = FakeProvider(
+        "gemini", "a", error=RuntimeError("Gemini unavailable")
+    )
+    router.providers["groq"] = FakeProvider(
+        "groq", "b", error=RuntimeError("Groq unavailable")
+    )
+    router.providers["nvidia"] = FakeProvider(
+        "nvidia", "nvidia-key", response="NVIDIA fallback reply"
+    )
+
+    answer, provider = await router.reply(
+        [{"role": "user", "content": "hello"}],
+        "english",
+    )
+
+    assert answer == "NVIDIA fallback reply"
+    assert provider == "nvidia"
+
+
+@pytest.mark.asyncio
+async def test_gemini_failure_falls_back_to_groq_before_nvidia():
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq", "nvidia"]
+    settings.nvidia_api_key = "nvidia-key"
+
+    router = AIRouter(settings)
+    router.providers["gemini"] = FakeProvider(
+        "gemini", "a", error=RuntimeError("Gemini unavailable")
+    )
+    router.providers["groq"] = FakeProvider(
+        "groq", "b", response="Groq fallback reply"
+    )
+    router.providers["nvidia"] = FakeProvider(
+        "nvidia", "nvidia-key", response="Should not be used"
+    )
+
+    answer, provider = await router.reply(
+        [{"role": "user", "content": "hello"}],
+        "english",
+    )
+
+    assert answer == "Groq fallback reply"
+    assert provider == "groq"

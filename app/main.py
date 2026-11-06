@@ -1,14 +1,17 @@
 import asyncio
+import base64
 import html
 import json
 import logging
 import re
+from io import BytesIO
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from telegram import Update
+from telegram import InputFile, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -47,6 +50,54 @@ ANILIST_URL = "https://graphql.anilist.co"
 # Telegram messages have a 4096-character limit. Keep a margin for safety.
 TELEGRAM_MESSAGE_LIMIT = 3500
 TYPING_REFRESH_SECONDS = 4
+THINKING_ANIMATION_DELAY_SECONDS = 3
+THINKING_ANIMATION_ASSET = (
+    Path(__file__).parent / "assets" / "ani_zeo_thinking.gif.b64"
+)
+
+
+async def send_delayed_thinking_animation(message):
+    """Send a temporary thinking GIF only when generation takes a little longer."""
+    await asyncio.sleep(THINKING_ANIMATION_DELAY_SECONDS)
+    try:
+        encoded = THINKING_ANIMATION_ASSET.read_text(encoding="ascii").strip()
+        gif_bytes = base64.b64decode(encoded, validate=True)
+        animation = InputFile(
+            BytesIO(gif_bytes),
+            filename="ani_zeo_thinking.gif",
+        )
+        return await message.reply_animation(
+            animation=animation,
+            disable_notification=True,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # The animation is purely decorative; never let it affect an AI reply.
+        log.debug(
+            "Thinking animation unavailable (%s)",
+            type(exc).__name__,
+        )
+        return None
+
+
+async def stop_thinking_animation(task) -> None:
+    """Cancel a pending animation or remove its temporary message."""
+    if task is None:
+        return
+    task.cancel()
+    try:
+        animation_message = await task
+    except asyncio.CancelledError:
+        return
+    if animation_message is not None:
+        try:
+            await animation_message.delete()
+        except Exception as exc:
+            log.debug(
+                "Thinking animation cleanup failed (%s)",
+                type(exc).__name__,
+            )
 
 
 async def keep_typing(bot, chat_id: int) -> None:
@@ -437,6 +488,7 @@ async def chat_message(update: Update, context) -> None:
 
     # Refresh Telegram's short-lived typing indicator while this message is processed.
     typing_task = asyncio.create_task(keep_typing(context.bot, message.chat_id))
+    thinking_task = asyncio.create_task(send_delayed_thinking_animation(message))
 
     try:
         await db.save_message(user.id, "user", message.text)
@@ -483,6 +535,8 @@ async def chat_message(update: Update, context) -> None:
         except asyncio.CancelledError:
             pass
         typing_task = None
+        await stop_thinking_animation(thinking_task)
+        thinking_task = None
 
         if anime_cover:
             try:
@@ -546,6 +600,8 @@ async def chat_message(update: Update, context) -> None:
                 await typing_task
             except asyncio.CancelledError:
                 pass
+        if thinking_task is not None:
+            await stop_thinking_animation(thinking_task)
 
 
 @asynccontextmanager

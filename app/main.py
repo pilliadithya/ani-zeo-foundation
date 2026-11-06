@@ -9,7 +9,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -46,6 +46,27 @@ ANILIST_URL = "https://graphql.anilist.co"
 
 # Telegram messages have a 4096-character limit. Keep a margin for safety.
 TELEGRAM_MESSAGE_LIMIT = 3500
+TYPING_REFRESH_SECONDS = 4
+
+
+async def keep_typing(bot, chat_id: int) -> None:
+    """Refresh Telegram's short-lived typing indicator until cancelled."""
+    while True:
+        try:
+            await bot.send_chat_action(
+                chat_id=chat_id,
+                action=ChatAction.TYPING,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # The indicator is best-effort and must never block the chat reply.
+            log.debug(
+                "Telegram typing indicator refresh failed (%s)",
+                type(exc).__name__,
+            )
+
+        await asyncio.sleep(TYPING_REFRESH_SECONDS)
 
 WATCH_ORDER_PHRASES = (
     "watch order",
@@ -414,9 +435,11 @@ async def chat_message(update: Update, context) -> None:
         )
         return
 
-    await db.save_message(user.id, "user", message.text)
+    # Refresh Telegram's short-lived typing indicator while this message is processed.
+    typing_task = asyncio.create_task(keep_typing(context.bot, message.chat_id))
 
     try:
+        await db.save_message(user.id, "user", message.text)
         # Personalization can be disabled in the user's profile.
         personalization_enabled = profile.get("personalization_enabled", True) is not False
         memory_record = None
@@ -508,6 +531,12 @@ async def chat_message(update: Update, context) -> None:
             "I'm having trouble reaching my AI providers right now. "
             "Please try again shortly."
         )
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
 
 
 @asynccontextmanager

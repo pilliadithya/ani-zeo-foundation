@@ -34,7 +34,7 @@ async def test_claim_update_returns_token_when_inserted():
     assert await db.claim_telegram_update(123) == str(token)
     query, args = pool.fetchrow_calls[0]
     assert "claim_token" in query
-    assert "ON CONFLICT (update_id) DO UPDATE" in query
+    assert "on conflict (update_id) do update" in query.lower()
     assert "RETURNING claim_token" in query
     assert args[0] == 123
     assert isinstance(args[1], uuid.UUID)

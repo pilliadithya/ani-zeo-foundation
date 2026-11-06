@@ -476,6 +476,14 @@ async def chat_message(update: Update, context) -> None:
         await db.save_message(user.id, "assistant", answer)
         log.info("AI reply completed via provider=%s", provider)
 
+        # Stop the typing indicator before delivering the completed answer.
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+        typing_task = None
+
         if anime_cover:
             try:
                 await message.reply_photo(
@@ -532,11 +540,12 @@ async def chat_message(update: Update, context) -> None:
             "Please try again shortly."
         )
     finally:
-        typing_task.cancel()
-        try:
-            await typing_task
-        except asyncio.CancelledError:
-            pass
+        if typing_task is not None:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except asyncio.CancelledError:
+                pass
 
 
 @asynccontextmanager

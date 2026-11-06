@@ -631,6 +631,8 @@ async def telegram_webhook(request: Request):
             raise ValueError("Telegram update must be a JSON object")
         telegram_app = request.app.state.telegram_app
         update = Update.de_json(payload, telegram_app.bot)
+    except HTTPException:
+        raise
     except Exception as exc:
         log.warning("Webhook payload rejected (%s)", type(exc).__name__)
         raise HTTPException(status_code=400, detail="Invalid update")

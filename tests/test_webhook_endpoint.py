@@ -167,6 +167,7 @@ async def test_webhook_times_out_and_releases_claim(configured_app, monkeypatch)
     assert configured_app.test_db.completed == []
 
 
+
 @pytest.mark.asyncio
 async def test_webhook_rejects_oversized_chunked_body_without_content_length(configured_app):
     from fastapi import HTTPException
@@ -175,32 +176,13 @@ async def test_webhook_rejects_oversized_chunked_body_without_content_length(con
     configured_app.test_db = FakeDatabase()
     configured_app.test_telegram_app = FakeTelegramApp()
 
-    # Deliberately omit Content-Length and deliver the payload in separate
-    # ASGI messages, as a chunked transfer could arrive at the server.
+    # No Content-Length: simulate an oversized chunked request arriving in
+    # separate ASGI messages. The route must reject it before JSON parsing.
     chunks = [
         b" " * 600_000,
         b" " * 450_000 + b'{"update_id":7001}',
     ]
-    sent = False
 
-    async def receive():
-        nonlocal sent
-        if sent:
-            return {"type": "http.request", "body": b"", "more_body": False}
-        sent = True
-        # Yield one chunk at a time so the route must enforce its limit while
-        # streaming rather than after buffering the complete request.
-        async def messages():
-            for index, chunk in enumerate(chunks):
-                yield {
-                    "type": "http.request",
-                    "body": chunk,
-                    "more_body": index < len(chunks) - 1,
-                }
-        # The Request stream calls receive repeatedly; retain the iterator.
-        return await iterator.__anext__()
-
-    iterator = iter(())  # replaced below with an async iterator
     async def chunk_messages():
         for index, chunk in enumerate(chunks):
             yield {
@@ -208,7 +190,11 @@ async def test_webhook_rejects_oversized_chunked_body_without_content_length(con
                 "body": chunk,
                 "more_body": index < len(chunks) - 1,
             }
+
     iterator = chunk_messages().__aiter__()
+
+    async def receive():
+        return await iterator.__anext__()
 
     scope = {
         "type": "http",

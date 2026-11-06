@@ -175,3 +175,74 @@ async def test_failed_webhook_releases_claim_for_retry(monkeypatch):
     assert second.status_code == 200
     assert telegram_app.calls == 2
     assert 9002 in db.completed
+
+
+@pytest.mark.asyncio
+async def test_postgres_atomically_claims_concurrent_duplicate_updates():
+    """Exercise the production INSERT..ON CONFLICT claim against real PostgreSQL."""
+    import os
+    import time
+
+    import asyncpg
+
+    dsn = os.getenv("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL is only configured in the CI PostgreSQL job")
+
+    connection = await asyncpg.connect(dsn)
+    update_id = time.time_ns()
+
+    try:
+        await connection.execute(
+            """
+            create table if not exists public.processed_telegram_updates (
+                update_id bigint primary key,
+                status text not null check (status in ('processing', 'completed')),
+                claimed_at timestamptz not null default now(),
+                completed_at timestamptz
+            )
+            """
+        )
+
+        claim_sql = """
+            insert into public.processed_telegram_updates (update_id, status)
+            values ($1, 'processing')
+            on conflict (update_id) do update
+              set status='processing', claimed_at=now(), completed_at=null
+              where processed_telegram_updates.status <> 'completed'
+                and processed_telegram_updates.claimed_at < now() - interval '10 minutes'
+            returning update_id
+        """
+
+        async def claim():
+            return await connection.fetchrow(claim_sql, update_id)
+
+        # Separate PostgreSQL connections are required to test real concurrent
+        # transactions, rather than serializing through one connection.
+        pool = await asyncpg.create_pool(dsn, min_size=2, max_size=2)
+        try:
+            async def pool_claim():
+                async with pool.acquire() as conn:
+                    return await conn.fetchrow(claim_sql, update_id)
+
+            results = await asyncio.gather(pool_claim(), pool_claim())
+            assert sum(result is not None for result in results) == 1
+
+            await pool.execute(
+                """
+                update public.processed_telegram_updates
+                set status='completed', completed_at=now()
+                where update_id=$1
+                """,
+                update_id,
+            )
+            duplicate = await pool_claim()
+            assert duplicate is None
+        finally:
+            await pool.close()
+    finally:
+        await connection.execute(
+            "delete from public.processed_telegram_updates where update_id=$1",
+            update_id,
+        )
+        await connection.close()

@@ -32,7 +32,11 @@ where claim_token is null;
 
 alter table public.processed_telegram_updates
   alter column claim_token set default gen_random_uuid(),
-  alter column claim_token set not null;
+  alter column claim_token set not null,
+  alter column status set default 'processing',
+  alter column attempts set default 1,
+  alter column claimed_at set default now(),
+  alter column created_at set default now();
 
 create index if not exists processed_telegram_updates_created_idx
   on public.processed_telegram_updates (created_at);

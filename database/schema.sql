@@ -33,6 +33,7 @@ create table if not exists public.user_memories (
 
 create table if not exists public.processed_telegram_updates (
   update_id bigint primary key,
+  claim_token uuid not null default gen_random_uuid(),
   status text not null default 'processing'
     check (status in ('processing', 'completed', 'failed')),
   attempts integer not null default 1 check (attempts > 0),

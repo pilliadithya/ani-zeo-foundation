@@ -1,14 +1,18 @@
+import asyncio
+import base64
 import html
 import json
 import logging
 import re
+from io import BytesIO
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from telegram import Update
-from telegram.constants import ParseMode
+from telegram import InputFile, Update
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -45,6 +49,75 @@ ANILIST_URL = "https://graphql.anilist.co"
 
 # Telegram messages have a 4096-character limit. Keep a margin for safety.
 TELEGRAM_MESSAGE_LIMIT = 3500
+TYPING_REFRESH_SECONDS = 4
+THINKING_ANIMATION_DELAY_SECONDS = 3
+THINKING_ANIMATION_ASSET = (
+    Path(__file__).parent / "assets" / "ani_zeo_thinking.gif.b64"
+)
+
+
+async def send_delayed_thinking_animation(message):
+    """Send a temporary thinking GIF only when generation takes a little longer."""
+    await asyncio.sleep(THINKING_ANIMATION_DELAY_SECONDS)
+    try:
+        encoded = THINKING_ANIMATION_ASSET.read_text(encoding="ascii").strip()
+        gif_bytes = base64.b64decode(encoded, validate=True)
+        animation = InputFile(
+            BytesIO(gif_bytes),
+            filename="ani_zeo_thinking.gif",
+        )
+        return await message.reply_animation(
+            animation=animation,
+            disable_notification=True,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # The animation is purely decorative; never let it affect an AI reply.
+        log.debug(
+            "Thinking animation unavailable (%s)",
+            type(exc).__name__,
+        )
+        return None
+
+
+async def stop_thinking_animation(task) -> None:
+    """Cancel a pending animation or remove its temporary message."""
+    if task is None:
+        return
+    task.cancel()
+    try:
+        animation_message = await task
+    except asyncio.CancelledError:
+        return
+    if animation_message is not None:
+        try:
+            await animation_message.delete()
+        except Exception as exc:
+            log.debug(
+                "Thinking animation cleanup failed (%s)",
+                type(exc).__name__,
+            )
+
+
+async def keep_typing(bot, chat_id: int) -> None:
+    """Refresh Telegram's short-lived typing indicator until cancelled."""
+    while True:
+        try:
+            await bot.send_chat_action(
+                chat_id=chat_id,
+                action=ChatAction.TYPING,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # The indicator is best-effort and must never block the chat reply.
+            log.debug(
+                "Telegram typing indicator refresh failed (%s)",
+                type(exc).__name__,
+            )
+
+        await asyncio.sleep(TYPING_REFRESH_SECONDS)
 
 WATCH_ORDER_PHRASES = (
     "watch order",
@@ -413,9 +486,12 @@ async def chat_message(update: Update, context) -> None:
         )
         return
 
-    await db.save_message(user.id, "user", message.text)
+    # Refresh Telegram's short-lived typing indicator while this message is processed.
+    typing_task = asyncio.create_task(keep_typing(context.bot, message.chat_id))
+    thinking_task = asyncio.create_task(send_delayed_thinking_animation(message))
 
     try:
+        await db.save_message(user.id, "user", message.text)
         # Personalization can be disabled in the user's profile.
         personalization_enabled = profile.get("personalization_enabled", True) is not False
         memory_record = None
@@ -451,6 +527,16 @@ async def chat_message(update: Update, context) -> None:
 
         await db.save_message(user.id, "assistant", answer)
         log.info("AI reply completed via provider=%s", provider)
+
+        # Stop the typing indicator before delivering the completed answer.
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+        typing_task = None
+        await stop_thinking_animation(thinking_task)
+        thinking_task = None
 
         if anime_cover:
             try:
@@ -507,6 +593,15 @@ async def chat_message(update: Update, context) -> None:
             "I'm having trouble reaching my AI providers right now. "
             "Please try again shortly."
         )
+    finally:
+        if typing_task is not None:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except asyncio.CancelledError:
+                pass
+        if thinking_task is not None:
+            await stop_thinking_animation(thinking_task)
 
 
 @asynccontextmanager
@@ -617,23 +712,102 @@ async def telegram_webhook(request: Request):
 
     try:
         payload = await request.json()
+        update_id = payload.get("update_id")
+        if not isinstance(update_id, int):
+            raise HTTPException(status_code=400, detail="Missing update_id")
+
+        db = request.app.state.db
+        claim_token = await db.claim_telegram_update(update_id)
+        if not claim_token:
+            log.info("Duplicate Telegram update ignored (update_id=%s)", update_id)
+            return {"ok": True}
+
         telegram_app = request.app.state.telegram_app
+        try:
+            update = Update.de_json(payload, telegram_app.bot)
+        except Exception as exc:
+            await db.release_telegram_update(update_id, claim_token)
+            log.warning(
+                "Telegram update deserialization failed (update_id=%s, type=%s)",
+                update_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(status_code=400, detail="Invalid Telegram update")
 
-        update = Update.de_json(
-            payload,
-            telegram_app.bot,
+        message = update.effective_message
+        message_id = message.message_id if message else None
+        log.info(
+            "Processing Telegram update (update_id=%s, message_id=%s)",
+            update_id,
+            message_id,
         )
 
-        await telegram_app.process_update(update)
+        async def renew_claim():
+            while True:
+                await asyncio.sleep(60)
+                try:
+                    renewed = await db.renew_telegram_update(update_id, claim_token)
+                    if not renewed:
+                        log.error(
+                            "Webhook claim ownership lost (update_id=%s)",
+                            update_id,
+                        )
+                        return
+                except asyncio.CancelledError:
+                    raise
+                except Exception as heartbeat_exc:
+                    log.error(
+                        "Webhook claim heartbeat failed (update_id=%s, type=%s)",
+                        update_id,
+                        type(heartbeat_exc).__name__,
+                    )
 
+        heartbeat = asyncio.create_task(renew_claim())
+        try:
+            try:
+                await telegram_app.process_update(update)
+            except Exception as exc:
+                try:
+                    await db.release_telegram_update(update_id, claim_token)
+                except Exception as release_exc:
+                    log.error(
+                        "Could not release failed webhook claim (update_id=%s, type=%s)",
+                        update_id,
+                        type(release_exc).__name__,
+                    )
+                log.warning(
+                    "Webhook processing failed (update_id=%s, type=%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Update processing failed",
+                )
+
+            try:
+                await db.complete_telegram_update(update_id, claim_token)
+            except Exception as exc:
+                # A reply may already have been sent. Keep the lease so an
+                # immediate Telegram retry cannot trigger a duplicate reply.
+                log.error(
+                    "Could not mark Telegram update complete (update_id=%s, type=%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
+        finally:
+            heartbeat.cancel()
+            try:
+                await heartbeat
+            except asyncio.CancelledError:
+                pass
+
+    except HTTPException:
+        raise
     except Exception as exc:
-        log.warning(
-            "Webhook update failed (%s)",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid update",
-        )
+        # Transient database or processing infrastructure errors should be
+        # retried by Telegram; malformed payloads are rejected above.
+        log.warning("Webhook infrastructure failed (type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Webhook processing unavailable")
 
     return {"ok": True}

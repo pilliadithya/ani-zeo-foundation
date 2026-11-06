@@ -30,3 +30,15 @@ create table if not exists public.user_memories (
   unique (telegram_user_id, memory_key)
 );
 -- Use this database server-side only. Never expose a privileged database credential to clients.
+
+
+-- Persistent Telegram webhook deduplication.
+create table if not exists public.processed_telegram_updates (
+  update_id bigint primary key,
+  status text not null check (status in ('processing','completed')),
+  claim_token uuid not null,
+  claimed_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+create index if not exists processed_telegram_updates_claimed_idx
+  on public.processed_telegram_updates (claimed_at);

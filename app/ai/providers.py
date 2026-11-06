@@ -1,6 +1,11 @@
 
 from dataclasses import dataclass
+import logging
+
 import httpx
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,6 +56,26 @@ class Provider:
 
             response.raise_for_status()
             data = response.json()
+
+        if self.name == "nvidia":
+            choices = data.get("choices") if isinstance(data, dict) else None
+            first = choices[0] if isinstance(choices, list) and choices else {}
+            message = first.get("message") if isinstance(first, dict) else {}
+            message = message if isinstance(message, dict) else {}
+            usage = data.get("usage") if isinstance(data, dict) else {}
+            usage = usage if isinstance(usage, dict) else {}
+            log.info(
+                "NVIDIA response metadata (model=%s, choices=%s, "
+                "finish_reason=%s, content_type=%s, has_reasoning_content=%s, "
+                "prompt_tokens=%s, completion_tokens=%s)",
+                self.model,
+                len(choices) if isinstance(choices, list) else 0,
+                first.get("finish_reason") if isinstance(first, dict) else None,
+                type(message.get("content")).__name__,
+                bool(message.get("reasoning_content")),
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
+            )
 
         try:
             choices = data.get("choices")

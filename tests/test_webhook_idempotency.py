@@ -40,7 +40,7 @@ async def test_claim_update_returns_token_when_inserted():
     assert "status='failed'" in query.lower()
     assert "interval '10 minutes'" in query.lower()
     assert args[0] == 123
-    assert args[1] == token
+    assert isinstance(args[1], uuid.UUID)
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,31 @@ class AnimeResearchService:
         match = TITLE.fullmatch((text or "").strip())
         return match.group(1).strip(" .?!") if match else None
 
+    @staticmethod
+    def _is_relevant_anime_result(item, query):
+        """Reject search hits that are not demonstrably about anime or the requested franchise."""
+        title = str(item.get("title") or "")
+        content = str(item.get("content") or "")
+        url = str(item.get("url") or "")
+        haystack = re.sub(r"\\s+", " ", f"{title} {content} {url}").casefold()
+
+        # "Big Three" is ambiguous outside anime; require a recognizable franchise.
+        if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+            return any(term in haystack for term in (
+                "one piece", "naruto", "boruto", "bleach",
+                "luffy", "ichigo", "masashi kishimoto",
+                "eiichiro oda", "tite kubo",
+            ))
+
+        anime_terms = (
+            "anime", "manga", "japanese animation", "shonen jump",
+            "weekly shonen jump", "shueisha", "crunchyroll",
+            "toei animation", "pierrot", "mappa", "ufotable",
+            "viz media", "kodansha", "aniplex",
+            "one piece", "naruto", "boruto", "bleach",
+        )
+        return any(term in haystack for term in anime_terms)
+
     def _cached(self, key):
         item = self.cache.get(key)
         if not item: return None
@@ -202,10 +227,18 @@ class AnimeResearchService:
         try:
             async with httpx.AsyncClient(timeout=12) as client:
                 today = date.today().isoformat()
+                if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+                    targeted_query = (
+                        "One Piece OR Naruto OR Boruto OR Bleach official anime news "
+                        "confirmed announcements release updates"
+                    )
+                else:
+                    targeted_query = query[:550]
                 search_query = (
-                    f"Anime news and confirmed release announcements as of {today}: "
-                    "prioritize future releases; exclude events whose release dates have passed. "
-                    + query[:550]
+                    f"Japanese anime and manga news as of {today}: "
+                    "official announcements and reliable anime-industry sources only. "
+                    "Exclude unrelated topics and events whose release dates have passed. "
+                    + targeted_query
                 )
                 response = await client.post(
                     "https://api.tavily.com/search",
@@ -224,22 +257,28 @@ class AnimeResearchService:
                 payload = response.json()
             citations, findings = [], []
             seen = set()
+            rejected = 0
             for item in payload.get("results") or []:
                 url = item.get("url")
                 if not isinstance(url, str) or not url.startswith("https://") or url in seen:
                     continue
+                snippet = re.sub(r"\\s+", " ", str(item.get("content") or "")).strip()
+                if not snippet or not self._is_relevant_anime_result(item, query):
+                    rejected += 1
+                    continue
                 seen.add(url)
-                title = re.sub(r"\s+", " ", str(item.get("title") or "Source")).strip()[:100]
-                citations.append({"title": title, "url": url})
-                snippet = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
+                title = re.sub(r"\\s+", " ", str(item.get("title") or "Source")).strip()[:100]
                 published = str(item.get("published_date") or "").strip()[:10]
-                if snippet:
-                    source_date = f" (source published: {published})" if published else ""
-                    findings.append(f"• **{title}**{source_date}\n  {snippet[:420]}")
+                source_date = f" (source published: {published})" if published else ""
+                citations.append({"title": title, "url": url})
+                findings.append(f"• **{title}**{source_date}\\n  {snippet[:420]}")
                 if len(citations) >= 5:
                     break
             if not citations or not findings:
-                log.warning("Live search provider=tavily outcome=unverified reason=no_source_results")
+                log.warning(
+                    "Live search provider=tavily outcome=unverified reason=no_relevant_anime_sources rejected=%s",
+                    rejected,
+                )
                 return None
             # Do not use Tavily's free-form answer: it can mix past and future release dates.
             answer = (

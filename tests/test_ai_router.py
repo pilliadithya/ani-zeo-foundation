@@ -132,7 +132,7 @@ async def test_tavily_backup_returns_cited_search_results(monkeypatch):
         def json(self):
             return {
                 "answer": "A new anime announcement was published.",
-                "results": [{"title": "Official announcement", "url": "https://example.com/news", "content": "Official studio update."}],
+                "results": [{"title": "Official anime announcement", "url": "https://example.com/news", "content": "Official anime studio update."}],
             }
 
     class FakeClient:
@@ -221,7 +221,7 @@ async def test_tavily_uses_source_snippets_not_unverified_answer(monkeypatch):
                 "results": [{
                     "title": "Official anime release update",
                     "url": "https://example.com/release",
-                    "content": "The studio confirmed a future release.",
+                    "content": "The anime studio confirmed a future anime release.",
                     "published_date": "2026-11-07",
                 }],
             }
@@ -263,3 +263,50 @@ def test_grounding_coverage_accepts_supported_sentences():
 
 def test_grounding_coverage_rejects_missing_supports():
     assert not AnimeResearchService._grounding_covers_answer("A long factual sentence with a claim.", [])
+
+
+@pytest.mark.asyncio
+async def test_tavily_backup_rejects_unrelated_crypto_results(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {
+                "results": [{
+                    "title": "Global cryptocurrency investment platform",
+                    "url": "https://example.com/crypto",
+                    "content": "Bitcoin, Ethereum and Web3 investment information.",
+                }],
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs):
+            assert "One Piece OR Naruto OR Boruto OR Bleach" in kwargs["json"]["query"]
+            return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(tavily_api_key="test-key")
+    result = await service.tavily_search_answer(
+        "Give me the latest confirmed Big 3 anime updates as of today."
+    )
+    assert result is None
+
+
+def test_tavily_relevance_guard_requires_big_three_franchise_match():
+    relevant = {
+        "title": "One Piece anime official update",
+        "content": "The latest One Piece anime announcement.",
+        "url": "https://example.com/one-piece",
+    }
+    irrelevant = {
+        "title": "Cryptocurrency investment platform",
+        "content": "Bitcoin and Ethereum Web3 services.",
+        "url": "https://example.com/crypto",
+    }
+    query = "Latest Big 3 anime updates"
+    assert AnimeResearchService._is_relevant_anime_result(relevant, query)
+    assert not AnimeResearchService._is_relevant_anime_result(irrelevant, query)

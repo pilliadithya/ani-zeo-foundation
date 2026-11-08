@@ -482,8 +482,8 @@ class AnimeResearchService:
                 f"**{heading}**\n"
                 f"_Checked {today}_\n\n"
                 + "\n\n".join(findings[:3])
-                + "\n\n_Note: These are source excerpts, not independently verified confirmations. "
-                "Open the linked sources to confirm announcement status, date and region._"
+                + "\n\n_Note: These are search-result excerpts, not independently verified facts or a release calendar. "
+                "Confirm announcement status, date and region in the linked sources._"
             )
             result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}
             self._store(cache_key, result, ttl=300)

@@ -25,6 +25,7 @@ from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
 from app.handlers import (
+    ai_usage_command,
     consent_callback,
     delete_data_callback,
     delete_data_command,
@@ -672,6 +673,7 @@ async def lifespan(app: FastAPI):
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("aiusage", ai_usage_command))
     telegram_app.add_handler(
         CommandHandler("settings", settings_command)
     )

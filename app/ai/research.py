@@ -290,7 +290,7 @@ class AnimeResearchService:
             async with httpx.AsyncClient(timeout=18) as client:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
-                    "tools":[{"google_search_retrieval":{}}],
+                    "tools":[{"google_search":{}}],
                     "generationConfig":{"temperature":0.2,"maxOutputTokens":900}})
                 res.raise_for_status(); payload = res.json()
             candidate = (payload.get("candidates") or [])[0]
@@ -357,27 +357,48 @@ class AnimeResearchService:
                     "Exclude unrelated topics and events whose release dates have passed. "
                     + targeted_query
                 )
-                response = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": self.tavily_api_key,
-                        "query": search_query[:700],
-                        "topic": "news",
-                        "search_depth": "basic",
-                        "days": 30,
-                        "max_results": 5,
-                        "include_answer": False,
-                        "include_raw_content": False,
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
+                async def fetch_results(target_query):
+                    response = await client.post(
+                        "https://api.tavily.com/search",
+                        json={
+                            "api_key": self.tavily_api_key,
+                            "query": target_query[:700],
+                            "topic": "news",
+                            "search_depth": "advanced",
+                            "days": 30,
+                            "max_results": 5,
+                            "include_answer": False,
+                            "include_raw_content": False,
+                        },
+                    )
+                    response.raise_for_status()
+                    return response.json().get("results") or []
+
+                if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+                    franchise_queries = [
+                        f"One Piece anime official news announcements updates {today}",
+                        f"Naruto Boruto anime official news announcements updates {today}",
+                        f"Bleach anime official news announcements updates {today}",
+                    ]
+                    batches = await asyncio.gather(
+                        *(fetch_results(target) for target in franchise_queries),
+                        return_exceptions=True,
+                    )
+                    raw_results = []
+                    for batch in batches:
+                        if isinstance(batch, Exception):
+                            log.warning("Tavily franchise search failed (%s)", type(batch).__name__)
+                            continue
+                        raw_results.extend(batch)
+                else:
+                    raw_results = await fetch_results(search_query)
+
             citations, findings = [], []
             seen = set()
             rejected = 0
             grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
             general_findings = []
-            for item in payload.get("results") or []:
+            for item in raw_results:
                 url = item.get("url")
                 if not isinstance(url, str) or not url.startswith("https://") or url in seen:
                     continue

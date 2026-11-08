@@ -190,7 +190,7 @@ class AnimeResearchService:
                 published = str(item.get("published_date") or "").strip()[:10]
                 if snippet:
                     source_date = f" (source published: {published})" if published else ""
-                    findings.append(f"• <b>{title}</b>{source_date}\n  {snippet[:420]}")
+                    findings.append(f"• **{title}**{source_date}\n  {snippet[:420]}")
                 if len(citations) >= 5:
                     break
             if not citations or not findings:
@@ -198,10 +198,10 @@ class AnimeResearchService:
                 return None
             # Do not use Tavily's free-form answer: it can mix past and future release dates.
             answer = (
-                f"<b>Recent anime news sources</b> (checked {today})\n\n"
+                f"**Recent anime news sources** (checked {today})\n\n"
                 + "\n\n".join(findings[:5])
                 + "\n\n<i>These are source summaries, not a verified release calendar. "
-                "Open the sources to confirm each title's release status and date.</i>"
+                "Open the sources to confirm each title's release status and date._"
             )
             result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}
             self._store(cache_key, result, ttl=300)

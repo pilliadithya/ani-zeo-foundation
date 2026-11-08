@@ -1,4 +1,5 @@
 """Quota-aware anime-only public data and live-search integration."""
+import asyncio
 import difflib
 import logging
 import re

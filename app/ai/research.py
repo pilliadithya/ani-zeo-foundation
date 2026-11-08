@@ -17,6 +17,7 @@ class AnimeResearchService:
     def __init__(self, api_key="", model="gemini-2.5-flash"):
         self.api_key, self.model = api_key, model
         self.cache = {}
+        self.grounding_disabled_until = 0.0
 
     @staticmethod
     def scope_decision(text, history=None):
@@ -44,10 +45,10 @@ class AnimeResearchService:
             self.cache.pop(key, None); return None
         return dict(item[1])
 
-    def _store(self, key, data):
+    def _store(self, key, data, ttl=21600):
         if len(self.cache) >= 256:
             self.cache.pop(min(self.cache, key=lambda k: self.cache[k][0]), None)
-        self.cache[key] = (time.monotonic() + 21600, dict(data))
+        self.cache[key] = (time.monotonic() + ttl, dict(data))
 
     async def anime_metadata(self, title):
         key = title.casefold()
@@ -85,7 +86,10 @@ class AnimeResearchService:
         return None
 
     async def google_grounded_answer(self, query, language=None):
-        if not self.api_key: return None
+        if not self.api_key or time.monotonic() < self.grounding_disabled_until: return None
+        cache_key = "live:" + (language or "") + ":" + re.sub(r"\s+", " ", query.casefold()).strip()
+        cached = self._cached(cache_key)
+        if cached is not None: return cached
         lang = {"tenglish":"Use natural Telangana-friendly Tenglish.", "hinglish":"Use natural Hinglish.", "tanglish":"Use natural Tanglish.", "english":"Use conversational English."}.get((language or "").lower(), "Match the user's language.")
         prompt = ("You are Ani Zeo, an anime/manga specialist. Answer only anime and Japanese animation topics. "
             "Use Google Search grounding for current facts. Prefer official studios, publishers, broadcasters and platforms. "
@@ -109,8 +113,15 @@ class AnimeResearchService:
                 if uri and uri.startswith("https://") and uri not in seen:
                     seen.add(uri); citations.append({"title":(web.get("title") or "Source")[:100],"url":uri})
                 if len(citations) >= 5: break
-            return {"answer":answer[:3500],"citations":citations}
+            result = {"answer":answer[:3500],"citations":citations}
+            if citations:
+                self._store(cache_key, result, ttl=300)
+            return result
+        except httpx.HTTPStatusError as exc:
+            self.grounding_disabled_until = time.monotonic() + (60 if exc.response.status_code == 429 else 30)
+            return None
         except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+            self.grounding_disabled_until = time.monotonic() + 30
             return None
 
     @staticmethod

@@ -30,6 +30,7 @@ class Provider:
                 "total_tokens": None,
                 "cached_input_tokens": None,
                 "thinking_tokens": None,
+                "tool_tokens": None,
                 "raw_usage": None,
             }
 
@@ -56,6 +57,7 @@ class Provider:
             "thinking_tokens": cls._usage_value(
                 completion_details, "reasoning_tokens", "thinking_tokens"
             ),
+            "tool_tokens": cls._usage_value(usage, "tool_use_prompt_tokens", "toolUsePromptTokenCount"),
             "raw_usage": usage,
         }
 

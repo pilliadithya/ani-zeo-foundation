@@ -3,6 +3,7 @@ from app.ai.router import AIRouter
 class FakeProvider:
     def __init__(self,name,key,response=None,error=None): self.name,self.api_key,self.response,self.error=name,key,response,error
     async def generate(self,messages,timeout,max_tokens):
+        self.last_max_tokens = max_tokens
         if self.error: raise self.error
         return self.response
 class FakeSettings:
@@ -465,6 +466,7 @@ async def test_reply_respects_configured_output_token_cap():
     )
     assert answer == "Short answer"
     assert name == "gemini"
+    assert provider.last_max_tokens == 200
     assert usage.get('input_tokens') is None
     assert usage.get('output_tokens') is None
     assert usage.get('estimated_input_tokens', 0) > 0
@@ -495,3 +497,12 @@ def test_research_context_uses_evidence_only_writer_instructions():
     assert "RESEARCH RESPONSE MODE" in system
     assert "Never turn a search excerpt" in system
     assert "CURRENT ANIME RESEARCH EVIDENCE" in system
+
+
+def test_compact_system_prompt_reduces_planned_input_tokens():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Hi"}],
+        "english",
+    )
+    assert router.estimate_messages_tokens(messages) < 1_300

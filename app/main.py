@@ -515,12 +515,10 @@ async def chat_message(update: Update, context) -> None:
         else:
             # Use the corrected text for understanding while preserving the exact
             # original user message in the database and visible chat transcript.
-            ai_history = list(history)
-            for history_item in reversed(ai_history):
-                if history_item.get("role") == "user":
-                    history_item = dict(history_item)
-                    history_item["content"] = normalized_text
-                    ai_history[ai_history.index(history_item)] = history_item
+            ai_history = [dict(item) for item in history]
+            for history_index in range(len(ai_history) - 1, -1, -1):
+                if ai_history[history_index].get("role") == "user":
+                    ai_history[history_index]["content"] = normalized_text
                     break
 
             answer, provider = await context.application.bot_data["ai"].reply(

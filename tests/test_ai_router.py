@@ -463,4 +463,6 @@ async def test_reply_respects_configured_output_token_cap():
     )
     assert answer == "Short answer"
     assert name == "gemini"
-    assert usage == {}
+    assert usage.get('input_tokens') is None
+    assert usage.get('output_tokens') is None
+    assert usage.get('estimated_input_tokens', 0) > 0

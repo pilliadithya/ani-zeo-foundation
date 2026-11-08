@@ -91,6 +91,26 @@ class AnimeResearchService:
                 pass
         return None
 
+    @staticmethod
+    def _grounding_covers_answer(answer, supports):
+        """Fail closed if a substantive answer sentence has no linked source segment."""
+        spans = []
+        for support in supports:
+            segment = support.get("segment") or {}
+            start, end = segment.get("startIndex"), segment.get("endIndex")
+            if isinstance(start, int) and isinstance(end, int) and end > start and support.get("groundingChunkIndices"):
+                spans.append((start, end))
+        if not spans:
+            return False
+        for match in re.finditer(r"[^.!?\\n]+(?:[.!?]+|$)", answer):
+            sentence = match.group(0).strip()
+            if len(sentence) < 24 or sentence.startswith(("#", "**")):
+                continue
+            start, end = match.span()
+            if not any(start < source_end and end > source_start for source_start, source_end in spans):
+                return False
+        return True
+
     async def google_grounded_answer(self, query, language=None):
         if not self.api_key or time.monotonic() < self.grounding_disabled_until: return None
         cache_key = "live:" + (language or "") + ":" + re.sub(r"\s+", " ", query.casefold()).strip()
@@ -120,18 +140,28 @@ class AnimeResearchService:
             parts = (candidate.get("content") or {}).get("parts") or []
             answer = "\n".join(p.get("text","") for p in parts if isinstance(p,dict)).strip()
             if not answer: return None
-            citations, seen = [], set()
-            for chunk in (candidate.get("groundingMetadata") or {}).get("groundingChunks") or []:
-                web = chunk.get("web") or {}; uri = web.get("uri")
-                if uri and uri.startswith("https://") and uri not in seen:
-                    seen.add(uri); citations.append({"title":(web.get("title") or "Source")[:100],"url":uri})
-                if len(citations) >= 5: break
-            # A generated answer without grounding citations is not verified live information.
-            if not citations:
-                metadata = candidate.get("groundingMetadata") or {}
-                log.warning("Live search provider=gemini outcome=unverified reason=missing_grounding_citations finish_reason=%s metadata_keys=%s", candidate.get("finishReason", "unknown"), ",".join(sorted(metadata.keys()))[:160])
+            metadata = candidate.get("groundingMetadata") or {}
+            chunks = metadata.get("groundingChunks") or []
+            supports = metadata.get("groundingSupports") or []
+            citations, seen, supported_indices = [], set(), set()
+            for support in supports:
+                for index in support.get("groundingChunkIndices") or []:
+                    if isinstance(index, int) and 0 <= index < len(chunks):
+                        uri = ((chunks[index].get("web") or {}).get("uri"))
+                        if isinstance(uri, str) and uri.startswith("https://"):
+                            supported_indices.add(index)
+            for index, chunk in enumerate(chunks):
+                web = chunk.get("web") or {}
+                uri = web.get("uri")
+                if index in supported_indices and isinstance(uri, str) and uri.startswith("https://") and uri not in seen:
+                    seen.add(uri)
+                    citations.append({"title":str(web.get("title") or "Source")[:100],"url":uri})
+                if len(citations) >= 5:
+                    break
+            if not citations or not self._grounding_covers_answer(answer, supports):
+                log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            result = {"answer":answer[:3500],"citations":citations}
+            result = {"answer":answer[:3500],"citations":citations,"provider":"gemini-google-search"}
             self._store(cache_key, result, ttl=300)
             return result
         except httpx.HTTPStatusError as exc:
@@ -201,7 +231,7 @@ class AnimeResearchService:
                 f"**Recent anime news sources** (checked {today})\n\n"
                 + "\n\n".join(findings[:5])
                 + "\n\n<i>These are source summaries, not a verified release calendar. "
-                "Open the sources to confirm each title's release status and date._"
+                "Confirm each title's release status, date and territory in the linked source._"
             )
             result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}
             self._store(cache_key, result, ttl=300)

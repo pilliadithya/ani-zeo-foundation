@@ -41,6 +41,10 @@ settings = get_settings()
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO)
 )
+# HTTPX logs full request URLs. Telegram Bot API URLs contain the bot token,
+# so keep transport-level request logging disabled in every environment.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 WEBHOOK_URL = "https://ani-zeo-foundation.onrender.com/telegram/webhook"

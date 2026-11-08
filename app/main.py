@@ -543,6 +543,13 @@ async def chat_message(update: Update, context) -> None:
             usage.get("total_tokens"),
         )
 
+        if usage:
+            try:
+                await db.log_ai_usage(user.id, provider, usage, usage.get("latency_ms"))
+            except Exception as usage_exc:
+                # Telemetry must never make a successful user-facing answer fail.
+                log.warning("AI usage persistence skipped (%s)", type(usage_exc).__name__)
+
         if metadata and metadata.get("cover"):
             try:
                 await message.reply_photo(photo=metadata["cover"], caption=f"🎌 {metadata['title']}")

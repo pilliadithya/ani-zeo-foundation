@@ -14,7 +14,9 @@ async def test_fallback_provider_used():
     r=AIRouter(FakeSettings()); r.providers["gemini"]=FakeProvider("gemini","a",error=RuntimeError("offline")); r.providers["groq"]=FakeProvider("groq","b",response="Hello")
     answer,name,usage=await r.reply([{"role":"user","content":"hi"}],"english")
     assert (answer,name)==("Hello","groq")
-    assert usage == {}
+    assert usage.get('input_tokens') is None
+    assert usage.get('output_tokens') is None
+    assert usage.get('estimated_input_tokens', 0) > 0
 @pytest.mark.asyncio
 async def test_missing_keys_fails_cleanly():
     s=FakeSettings(); s.provider_order=["nvidia","openrouter"]

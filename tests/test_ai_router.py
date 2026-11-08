@@ -237,10 +237,10 @@ async def test_tavily_uses_source_snippets_not_unverified_answer(monkeypatch):
     monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
     service = AnimeResearchService(tavily_api_key="test-key")
     result = await service.tavily_search_answer("Upcoming anime releases")
-    assert "Official anime release update" in result["answer"]
-    assert "2026-11-07" in result["answer"]
+    assert result["answer"].startswith("Hey! Here's the update I found.")
+    assert "The anime studio confirmed a future anime release." in result["answer"]
     assert "unverified summary" not in result["answer"]
-    assert "not independently verified facts or a release calendar" in result["answer"]
+    assert "I won't fill in details they haven't confirmed" in result["answer"]
 
 
 def test_grounding_coverage_rejects_unsupported_claims():
@@ -384,10 +384,11 @@ async def test_tavily_big_three_results_are_grouped_and_compact(monkeypatch):
         "Give me latest Big Three anime updates"
     )
     assert result is not None
-    assert "**One Piece**" in result["answer"]
-    assert "**Bleach**" in result["answer"]
+    assert "**One Piece:**" in result["answer"]
+    assert "**Bleach:**" in result["answer"]
     assert "DayOne" not in result["answer"]
-    assert "example.com" in result["answer"]
+    assert "ANIME NEWS" not in result["answer"]
+    assert "Checked 2026" not in result["answer"]
     assert len(result["answer"]) < 1800
 
 

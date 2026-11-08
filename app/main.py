@@ -468,10 +468,14 @@ async def chat_message(update: Update, context) -> None:
             )
 
         metadata = None
+        title = None
         if not live_result:
             title = research.extract_title(message.text)
             if title:
                 metadata = await research.anime_metadata(title)
+                if metadata is None:
+                    await message.reply_text(REDIRECT)
+                    return
 
         if live_result:
             answer, provider = live_result["answer"], "gemini-google-search"

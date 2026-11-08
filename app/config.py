@@ -7,16 +7,16 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     webhook_secret: str
     database_url: str
-    ai_provider_order: str = "gemini,groq,nvidia,openrouter"
+    ai_provider_order: str = "gemini,groq,openrouter"
     ai_timeout_seconds: float = 25
     ai_max_output_tokens: int = 700
     ai_cost_rates_json: str = "{}"
     ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
     tavily_api_key: str = ""
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
     nvidia_api_key: str = ""
     nvidia_model: str = "nvidia/llama-3.3-nemotron-super-49b-v1"
     openrouter_api_key: str = ""

@@ -198,7 +198,7 @@ async def test_google_grounding_extracts_citations(monkeypatch):
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
         async def post(self, *args, **kwargs):
-            assert kwargs["json"]["tools"] == [{"google_search_retrieval": {}}]
+            assert kwargs["json"]["tools"] == [{"google_search": {}}]
             assert kwargs["json"]["generationConfig"]["temperature"] == 0.2
             return FakeResponse()
 
@@ -285,7 +285,7 @@ async def test_tavily_backup_rejects_unrelated_crypto_results(monkeypatch):
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
         async def post(self, *args, **kwargs):
-            assert "One Piece OR Naruto OR Boruto OR Bleach" in kwargs["json"]["query"]
+            assert any(name in kwargs["json"]["query"] for name in ("One Piece", "Naruto Boruto", "Bleach"))
             return FakeResponse()
 
     monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
@@ -389,3 +389,45 @@ async def test_tavily_big_three_results_are_grouped_and_compact(monkeypatch):
     assert "DayOne" not in result["answer"]
     assert "example.com" in result["answer"]
     assert len(result["answer"]) < 1800
+
+
+def test_intent_detector_classifies_live_news_and_typos():
+    detected = AnimeResearchService.detect_intent(
+        "Give me latest anmie updatse for narutoo"
+    )
+    assert detected["intent"] == "live_news"
+    assert detected["scope"] == "anime"
+    assert detected["was_corrected"] is True
+    assert "anime" in detected["normalized_text"].lower()
+    assert "updates" in detected["normalized_text"].lower()
+    assert "Naruto" in detected["normalized_text"]
+
+
+def test_intent_detector_handles_greeting_with_bot_name():
+    detected = AnimeResearchService.detect_intent("Hi Ani Zeo")
+    assert detected["intent"] == "greeting"
+    assert detected["scope"] == "greeting"
+
+
+def test_intent_detector_understands_anime_follow_up_from_context():
+    history = [{"role": "user", "content": "Tell me about One Piece anime"}]
+    detected = AnimeResearchService.detect_intent("What about his brother?", history)
+    assert detected["intent"] == "follow_up"
+    assert detected["scope"] == "anime"
+
+
+def test_intent_detector_keeps_unknown_names_unchanged():
+    original = "Tell me about Xyzzq Anime"
+    assert AnimeResearchService.correct_typos(original) == original
+
+
+def test_intent_detector_recognizes_updates_without_news_keyword():
+    detected = AnimeResearchService.detect_intent("One Piece updates")
+    assert detected["intent"] == "live_news"
+
+
+def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_followup():
+    history = [{"role": "user", "content": "Tell me about One Piece anime"}]
+    detected = AnimeResearchService.detect_intent("What's the weather today?", history)
+    assert detected["scope"] == "redirect"
+    assert detected["intent"] == "unclear"

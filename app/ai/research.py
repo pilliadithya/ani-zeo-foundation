@@ -1,4 +1,6 @@
 """Quota-aware anime-only public data and live-search integration."""
+import asyncio
+import difflib
 import logging
 import re
 import time
@@ -13,8 +15,8 @@ JIKAN = "https://api.jikan.moe/v4/anime"
 REDIRECT = "I'm Ani Zeo, your anime companion, so I can help with anime and manga topics. 🎌"
 ANIME = re.compile(r"\b(anime|manga|manhwa|manhua|light novel|watch order|read order|filler|canon|anime studio|seiyuu|voice actor|anime character|anime film|anime movie|anime season|anime episode|japanese animation|shonen|shoujo|seinen|isekai)\b", re.I)
 OFF_TOPIC = re.compile(r"\b(python|javascript|typescript|programming|write code|debug code|cybersecurity|ethical hacking|sql query|homework|politics|stock market|crypto|investment|malware|exploit code)\b", re.I)
-GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye)(?:\s+bro)?[!.? ]*$", re.I)
-LIVE = re.compile(r"\b(latest|today|currently|right now|this week|recent|breaking|news|announced|announcement|airing now|airing today|release date|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
+GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye|how are you|what(?:\s+is)? up|good morning|good afternoon|good evening|nice to meet you)(?:\s+(?:ani zeo|bro))*[!.? ]*$", re.I)
+LIVE = re.compile(r"\b(latest|newest|today|currently|right now|this week|recent|breaking|news|update|updates|just announced|announced|announcement|airing now|airing today|release date|release updates|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
 TITLE = re.compile(r"^(?:tell me about|info about|information about|details about|who is|watch order for|watch order of|read order for|read order of)\s+(.{2,80})$", re.I)
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
@@ -26,23 +28,147 @@ class AnimeResearchService:
         self.grounding_disabled_until = 0.0
         self.tavily_disabled_until = 0.0
 
-    @staticmethod
-    def scope_decision(text, history=None):
-        text = (text or "").strip()
-        if GREETING.fullmatch(text): return "greeting"
-        if not text or OFF_TOPIC.search(text): return "redirect"
-        if ANIME.search(text): return "anime"
-        previous = " ".join(str(x.get("content", ""))[:400] for x in (history or [])[-4:])
-        if ANIME.search(previous) or TITLE.fullmatch(text): return "anime"
-        return "redirect"
+    TYPO_PHRASES = (
+        (r"\bone\s+peice\b", "One Piece"),
+        (r"\bjujutsu\s+kaisen\b", "Jujutsu Kaisen"),
+        (r"\bdemon\s+slayer\b", "Demon Slayer"),
+        (r"\battack\s+on\s+titans?\b", "Attack on Titan"),
+        (r"\bmy\s+hero\s+academia\b", "My Hero Academia"),
+        (r"\bwatch\s+oder\b", "watch order"),
+    )
+    TYPO_WORDS = {
+        "anmie": "anime", "anim": "anime", "mangae": "manga",
+        "narutoo": "Naruto", "narutto": "Naruto", "bleech": "Bleach",
+        "blech": "Bleach", "borutto": "Boruto", "lufy": "Luffy",
+        "zorro": "Zoro", "gojo": "Gojo", "sukuna": "Sukuna",
+        "relese": "release", "relase": "release", "upadte": "update",
+        "updatse": "updates", "announcment": "announcement",
+        "anounce": "announce", "reccomend": "recommend",
+        "recomend": "recommend", "recomendation": "recommendation",
+        "recomendations": "recommendations", "sugest": "suggest",
+        "charcter": "character", "episdoe": "episode",
+        "eposide": "episode", "stduio": "studio",
+    }
+    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
+    INTENT_ENTITIES = (
+        "one piece", "naruto", "boruto", "bleach", "dragon ball", "big three", "big 3",
+        "demon slayer", "jujutsu kaisen", "attack on titan",
+        "my hero academia", "frieren", "solo leveling", "death note",
+        "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku",
+        "tanjiro", "eren", "anilist", "crunchyroll",
+    )
 
-    @staticmethod
-    def needs_live_search(text):
-        return bool(LIVE.search(text or ""))
+    @classmethod
+    def correct_typos(cls, text):
+        """Conservative anime-aware correction; only correct known domain vocabulary."""
+        corrected = re.sub(r"\s+", " ", (text or "").strip())
+        for pattern, replacement in cls.TYPO_PHRASES:
+            corrected = re.sub(pattern, replacement, corrected, flags=re.I)
+        words = re.findall(r"[A-Za-z]+", corrected)
+        for word in words:
+            lower = word.casefold()
+            replacement = cls.TYPO_WORDS.get(lower)
+            if not replacement and lower not in cls.CORRECTION_VOCAB and len(lower) >= 5 and lower not in {
+                "about", "which", "there", "their", "today", "where",
+                "would", "could", "should", "please", "hello",
+            }:
+                matches = difflib.get_close_matches(
+                    lower, cls.CORRECTION_VOCAB, n=2, cutoff=0.88
+                )
+                if matches:
+                    first_score = difflib.SequenceMatcher(None, lower, matches[0]).ratio()
+                    second_score = (
+                        difflib.SequenceMatcher(None, lower, matches[1]).ratio()
+                        if len(matches) > 1 else 0.0
+                    )
+                    if first_score - second_score >= 0.08:
+                        replacement = matches[0]
+            if replacement:
+                corrected = re.sub(
+                    rf"\b{re.escape(word)}\b",
+                    replacement,
+                    corrected,
+                    count=1,
+                    flags=re.I,
+                )
+        return corrected
 
-    @staticmethod
-    def extract_title(text):
-        match = TITLE.fullmatch((text or "").strip())
+    @classmethod
+    def detect_intent(cls, text, history=None):
+        """Classify product intent before routing; typo correction is conservative and explainable."""
+        original = (text or "").strip()
+        corrected = cls.correct_typos(original)
+        lower = corrected.casefold()
+        previous = " ".join(
+            str(x.get("content", ""))[:400]
+            for x in (history or [])[-6:]
+            if isinstance(x, dict)
+        ).casefold()
+        has_context = bool(
+            re.search(r"\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\b", previous)
+        )
+        entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
+        explicit_anime_scope = bool(
+            ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected)
+        )
+        followup_candidate = bool(
+            has_context
+            and len(corrected.split()) <= 10
+            and (
+                re.search(
+                    r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue)\b",
+                    lower,
+                )
+                or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
+            )
+        )
+        anime_scope = explicit_anime_scope or followup_candidate
+
+        if GREETING.fullmatch(corrected):
+            intent = "greeting"
+        elif not corrected or (OFF_TOPIC.search(corrected) and not anime_scope):
+            intent = "off_topic"
+        elif LIVE.search(corrected) and anime_scope:
+            intent = "live_news"
+        elif re.search(r"\b(recommend|recommendations|suggest|similar to|like .+ anime|top \d+ anime)\b", lower):
+            intent = "recommendation"
+        elif re.search(r"\b(watch order|watching order|chronological order|release order|read order)\b", lower):
+            intent = "watch_order"
+        elif re.search(r"\b(who is|character|powers|ability|backstory|relationship)\b", lower):
+            intent = "character_question"
+        elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):
+            intent = "industry_question"
+        elif followup_candidate:
+            intent = "follow_up"
+        else:
+            intent = "anime_question" if anime_scope else "unclear"
+
+        if intent == "off_topic" or intent == "unclear":
+            scope = "redirect"
+        elif intent == "greeting":
+            scope = "greeting"
+        else:
+            scope = "anime"
+
+        return {
+            "intent": intent,
+            "scope": scope,
+            "normalized_text": corrected,
+            "was_corrected": corrected != original,
+            "confidence": 0.95 if intent in {"greeting", "live_news", "watch_order", "recommendation"} else (0.82 if anime_scope else 0.55),
+        }
+
+    @classmethod
+    def scope_decision(cls, text, history=None):
+        return cls.detect_intent(text, history)["scope"]
+
+    @classmethod
+    def needs_live_search(cls, text):
+        return bool(LIVE.search(cls.correct_typos(text)))
+
+    @classmethod
+    def extract_title(cls, text):
+        match = TITLE.fullmatch(cls.correct_typos(text))
         return match.group(1).strip(" .?!") if match else None
 
     @staticmethod
@@ -201,7 +327,7 @@ class AnimeResearchService:
             async with httpx.AsyncClient(timeout=18) as client:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
-                    "tools":[{"google_search_retrieval":{}}],
+                    "tools":[{"google_search":{}}],
                     "generationConfig":{"temperature":0.2,"maxOutputTokens":900}})
                 res.raise_for_status(); payload = res.json()
             candidate = (payload.get("candidates") or [])[0]
@@ -268,27 +394,48 @@ class AnimeResearchService:
                     "Exclude unrelated topics and events whose release dates have passed. "
                     + targeted_query
                 )
-                response = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": self.tavily_api_key,
-                        "query": search_query[:700],
-                        "topic": "news",
-                        "search_depth": "basic",
-                        "days": 30,
-                        "max_results": 5,
-                        "include_answer": False,
-                        "include_raw_content": False,
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
+                async def fetch_results(target_query):
+                    response = await client.post(
+                        "https://api.tavily.com/search",
+                        json={
+                            "api_key": self.tavily_api_key,
+                            "query": target_query[:700],
+                            "topic": "news",
+                            "search_depth": "advanced",
+                            "days": 30,
+                            "max_results": 5,
+                            "include_answer": False,
+                            "include_raw_content": False,
+                        },
+                    )
+                    response.raise_for_status()
+                    return response.json().get("results") or []
+
+                if re.search(r"\bbig\s*3\b|big three", query, re.I):
+                    franchise_queries = [
+                        f"One Piece anime official news announcements updates {today}",
+                        f"Naruto Boruto anime official news announcements updates {today}",
+                        f"Bleach anime official news announcements updates {today}",
+                    ]
+                    batches = await asyncio.gather(
+                        *(fetch_results(target) for target in franchise_queries),
+                        return_exceptions=True,
+                    )
+                    raw_results = []
+                    for batch in batches:
+                        if isinstance(batch, Exception):
+                            log.warning("Tavily franchise search failed (%s)", type(batch).__name__)
+                            continue
+                        raw_results.extend(batch)
+                else:
+                    raw_results = await fetch_results(search_query)
+
             citations, findings = [], []
             seen = set()
             rejected = 0
             grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
             general_findings = []
-            for item in payload.get("results") or []:
+            for item in raw_results:
                 url = item.get("url")
                 if not isinstance(url, str) or not url.startswith("https://") or url in seen:
                     continue
@@ -335,8 +482,8 @@ class AnimeResearchService:
                 f"**{heading}**\n"
                 f"_Checked {today}_\n\n"
                 + "\n\n".join(findings[:3])
-                + "\n\n_Note: These are source excerpts, not independently verified confirmations. "
-                "Open the linked sources to confirm announcement status, date and region._"
+                + "\n\n_Note: These are search-result excerpts, not independently verified facts or a release calendar. "
+                "Confirm announcement status, date and region in the linked sources._"
             )
             result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}
             self._store(cache_key, result, ttl=300)

@@ -518,6 +518,11 @@ async def chat_message(update: Update, context) -> None:
             research_usage = dict(live_result.get("usage") or {})
             if research_usage:
                 research_usage["operation"] = "grounded_research"
+                research_usage["estimated_cost_usd"] = (
+                    context.application.bot_data["ai"].estimate_cost_usd(
+                        "gemini", research_usage, research_usage.get("model")
+                    )
+                )
             ai_history = [dict(item) for item in history]
             for history_index in range(len(ai_history) - 1, -1, -1):
                 if ai_history[history_index].get("role") == "user":

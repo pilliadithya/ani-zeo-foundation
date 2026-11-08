@@ -234,9 +234,9 @@ class AIRouter:
 
         if intent_context:
             system += (
-                "\\n\\nREQUEST INTENT — routing hint, not factual evidence. "
+                "\n\nREQUEST INTENT — routing hint, not factual evidence. "
                 "Use it to understand the user's task and corrected wording; "
-                "answer the user's actual request naturally. Do not mention internal intent labels.\\n"
+                "answer the user's actual request naturally. Do not mention internal intent labels.\n"
                 + str(intent_context)[:500]
             )
 

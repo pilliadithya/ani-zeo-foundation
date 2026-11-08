@@ -346,6 +346,7 @@ class AnimeResearchService:
                 "total_tokens": usage_meta.get("totalTokenCount"),
                 "cached_input_tokens": usage_meta.get("cachedContentTokenCount"),
                 "thinking_tokens": usage_meta.get("thoughtsTokenCount"),
+                "tool_tokens": usage_meta.get("toolUsePromptTokenCount"),
                 "estimated_input_tokens": None,
                 "latency_ms": int((time.monotonic() - request_started) * 1000),
                 "model": self.model,

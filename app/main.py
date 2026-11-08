@@ -514,7 +514,9 @@ async def chat_message(update: Update, context) -> None:
         research_usage = {}
         if live_result:
             # Every live-search provider now feeds the same conversation writer.
-            research_usage = live_result.get("usage") or {}
+            research_usage = dict(live_result.get("usage") or {})
+            if research_usage:
+                research_usage["operation"] = "grounded_research"
             ai_history = [dict(item) for item in history]
             for history_index in range(len(ai_history) - 1, -1, -1):
                 if ai_history[history_index].get("role") == "user":
@@ -547,6 +549,10 @@ async def chat_message(update: Update, context) -> None:
                     f"Corrected query (only obvious typos): {normalized_text}"
                 ),
             )
+
+        if usage:
+            usage = dict(usage)
+            usage["operation"] = "response_generation"
 
         await db.save_message(user.id, "assistant", answer)
         log.info(

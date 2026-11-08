@@ -114,9 +114,9 @@ class Database:
         await self._pool().execute(
             """insert into public.ai_usage_events
                 (telegram_user_id, provider, model, input_tokens, output_tokens,
-                 total_tokens, cached_input_tokens, thinking_tokens,
+                 total_tokens, cached_input_tokens, thinking_tokens, tool_tokens,
                  estimated_input_tokens, latency_ms, finish_reason, estimated_cost_usd, operation)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
             user_id,
             str(provider or "unknown")[:80],
             str(usage.get("model") or "")[:160] or None,
@@ -125,6 +125,7 @@ class Database:
             usage.get("total_tokens"),
             usage.get("cached_input_tokens"),
             usage.get("thinking_tokens"),
+            usage.get("tool_tokens"),
             usage.get("estimated_input_tokens"),
             latency_ms,
             str(usage.get("finish_reason") or "")[:80] or None,
@@ -142,6 +143,7 @@ class Database:
                       sum(total_tokens)::bigint as total_tokens,
                       sum(cached_input_tokens)::bigint as cached_input_tokens,
                       sum(thinking_tokens)::bigint as thinking_tokens,
+                      sum(tool_tokens)::bigint as tool_tokens,
                       sum(estimated_cost_usd)::numeric as estimated_cost_usd,
                       round(avg(latency_ms))::bigint as average_latency_ms
                from public.ai_usage_events

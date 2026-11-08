@@ -394,7 +394,7 @@ class AnimeResearchService:
             if not citations or not self._grounding_covers_answer(answer, supports):
                 log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            verification = verify_evidence(candidate_evidence, '', limit=5)
+            verification = verify_evidence(candidate_evidence, '', limit=5, require_anime_relevance=False)
             evidence = verification["items"]
             verification["grounding_claim_support_passed"] = True
             verification["overall_status"] = (

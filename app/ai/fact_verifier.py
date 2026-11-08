@@ -236,3 +236,23 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         "independent_publishers": len(seen_domains),
         "conflicts": conflicts,
     }
+
+
+def verification_fallback(language: str | None, result: dict) -> str:
+    """A safe, friendly fallback when the final response fails evidence checks."""
+    preferred = (language or "english").lower()
+    if result.get("conflicted_chapters"):
+        if preferred in {"tenglish", "telugu", "telugu_english"}:
+            return "Bro, ee chapter date gurinchi sources different dates cheptunnayi. Wrong date cheppadam kanna, official source lo clear ayye varaku wait cheddam. 👀"
+        if preferred == "hinglish":
+            return "Bro, is chapter ki sources alag-alag dates bata rahe hain. Galat date dene se better hai official confirmation ka wait karein. 👀"
+        if preferred == "tanglish":
+            return "Indha chapter date pathi sources different dates solranga. Thappaana date sollaama, official confirmation vara wait pannalaam. 👀"
+        return "I found conflicting dates for this chapter, so I don't want to give you the wrong one. Let's wait for a clear official confirmation. 👀"
+    if preferred in {"tenglish", "telugu", "telugu_english"}:
+        return "Bro, ee update lo exact details ni sources tho verify cheyyalekapoya. Guess chesi wrong info ivvadam kanna, confirm ayyaka cheptha. 👀"
+    if preferred == "hinglish":
+        return "Bro, is update ki exact details sources se verify nahi ho paaye. Guess karke galat info dene se better hai confirmation ka wait karna. 👀"
+    if preferred == "tanglish":
+        return "Indha update-oda exact details sources-la verify panna mudiyala. Guess panni thappaana info sollaama, confirm aana apram solren. 👀"
+    return "I couldn't verify the exact details against the available sources, so I won't guess. I'll share a reliable update when the evidence is clearer. 👀"

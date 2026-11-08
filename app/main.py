@@ -20,6 +20,7 @@ from telegram.ext import (
 )
 
 from app.ai.router import AIRouter
+from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
 from app.handlers import (
@@ -431,6 +432,13 @@ async def chat_message(update: Update, context) -> None:
         )
         return
 
+    research = context.application.bot_data["research"]
+    recent_for_scope = await db.get_recent_messages(user.id, limit=4)
+    scope = research.scope_decision(message.text, recent_for_scope)
+    if scope == "redirect":
+        await message.reply_text(REDIRECT)
+        return
+
     await db.save_message(user.id, "user", message.text)
 
     try:
@@ -453,36 +461,48 @@ async def chat_message(update: Update, context) -> None:
 
         history = await db.get_recent_messages(user.id, limit=8)
 
-        # Look up a single cover only for a specific anime/franchise question.
-        search_term = extract_anime_search_term(message.text)
-        anime_cover = (
-            await find_anime_cover(search_term)
-            if search_term
-            else None
-        )
+        live_result = None
+        if research.needs_live_search(message.text):
+            live_result = await research.google_grounded_answer(
+                message.text, profile.get("preferred_language")
+            )
 
-        answer, provider = await context.application.bot_data["ai"].reply(
-            history,
-            profile.get("preferred_language"),
-            memory_summary=summary_text,
-        )
+        metadata = None
+        title = None
+        if not live_result:
+            title = research.extract_title(message.text)
+            if title:
+                metadata = await research.anime_metadata(title)
+                if metadata is None:
+                    await message.reply_text(REDIRECT)
+                    return
+
+        if live_result:
+            answer, provider = live_result["answer"], "gemini-google-search"
+        else:
+            answer, provider = await context.application.bot_data["ai"].reply(
+                history, profile.get("preferred_language"),
+                memory_summary=summary_text,
+                research_context=research.context_for(metadata),
+            )
 
         await db.save_message(user.id, "assistant", answer)
         log.info("AI reply completed via provider=%s", provider)
 
-        if anime_cover:
+        if metadata and metadata.get("cover"):
             try:
-                await message.reply_photo(
-                    photo=anime_cover["image_url"],
-                    caption=f"🎌 {anime_cover['title']}",
-                )
+                await message.reply_photo(photo=metadata["cover"], caption=f"🎌 {metadata['title']}")
             except Exception as exc:
-                log.warning(
-                    "Telegram anime cover send failed (%s)",
-                    type(exc).__name__,
-                )
+                log.warning("Telegram anime cover send failed (%s)", type(exc).__name__)
 
         await send_formatted_answer(message, answer)
+        if live_result and live_result.get("citations"):
+            lines = ["Sources:"]
+            for source in live_result["citations"][:5]:
+                url = html.escape(source["url"], quote=True)
+                title = html.escape(source["title"])
+                lines.append(f'<a href="{url}">{title}</a>')
+            await message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
         # Refresh memory after the user has received the answer. Summarization is
         # best-effort: if it fails, the chat reply remains successful.
@@ -540,6 +560,7 @@ async def lifespan(app: FastAPI):
 
     telegram_app.bot_data["db"] = db
     telegram_app.bot_data["ai"] = AIRouter(settings)
+    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model)
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))

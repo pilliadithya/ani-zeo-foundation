@@ -114,9 +114,12 @@ class AnimeResearchService:
         followup_candidate = bool(
             has_context
             and len(corrected.split()) <= 10
-            and re.search(
-                r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|why|how|which one|tell me more|continue)\b",
-                lower,
+            and (
+                re.search(
+                    r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue)\b",
+                    lower,
+                )
+                or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
             )
         )
         anime_scope = explicit_anime_scope or followup_candidate

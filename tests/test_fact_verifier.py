@@ -1,4 +1,4 @@
-from app.ai.fact_verifier import verify_evidence
+from app.ai.fact_verifier import validate_generated_answer, verify_evidence
 
 
 def test_primary_source_is_labelled_as_primary_not_absolute_truth():
@@ -72,3 +72,55 @@ def test_different_chapters_with_different_dates_are_not_a_conflict():
         "snippet": "Chapter 1196 released on October 18, 2026. Chapter 1197 releases on November 1, 2026.",
     }], "One Piece manga chapter release schedule")
     assert result["conflicts"] == []
+
+
+def test_generated_answer_rejects_unsupported_chapter_and_date():
+    research = {
+        "evidence": [{
+            "title": "One Piece chapter news",
+            "snippet": "Chapter 1197 is discussed in this report.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "One Piece Chapter 1198 releases on December 1, 2026.",
+        research,
+    )
+    assert not result["ok"]
+    assert result["unsupported_chapters"] == ["1198"]
+    assert result["unsupported_dates"] == ["2026-12-01"]
+
+
+def test_generated_answer_rejects_official_confirmation_without_primary_evidence():
+    research = {
+        "evidence": [{
+            "title": "One Piece news report",
+            "snippet": "A report discusses a possible update.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {},
+    }
+    result = validate_generated_answer(
+        "The update was officially confirmed.",
+        research,
+    )
+    assert result["unsupported_confirmation"] is True
+
+
+def test_generated_answer_can_mention_conflicted_chapter_without_repeating_date():
+    research = {
+        "evidence": [{
+            "title": "One Piece Chapter 1197",
+            "snippet": "Chapter 1197 releases November 1, 2026.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {
+            "conflicts": [{"chapter": "1197", "dates": ["November 1, 2026", "November 2, 2026"]}],
+        },
+    }
+    result = validate_generated_answer(
+        "There are conflicting reports about the release date for Chapter 1197.",
+        research,
+    )
+    assert result["ok"] is True

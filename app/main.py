@@ -511,19 +511,33 @@ async def chat_message(update: Update, context) -> None:
                     return
 
         usage = {}
+        research_usage = {}
         if live_result:
-            answer = live_result["answer"]
-            provider = live_result.get("provider", "gemini-google-search")
-            usage = live_result.get("usage") or {}
-        else:
-            # Use the corrected text for understanding while preserving the exact
-            # original user message in the database and visible chat transcript.
+            # Every live-search provider now feeds the same conversation writer.
+            research_usage = live_result.get("usage") or {}
             ai_history = [dict(item) for item in history]
             for history_index in range(len(ai_history) - 1, -1, -1):
                 if ai_history[history_index].get("role") == "user":
                     ai_history[history_index]["content"] = normalized_text
                     break
-
+            answer, provider, usage = await context.application.bot_data["ai"].reply(
+                ai_history,
+                profile.get("preferred_language"),
+                memory_summary=summary_text,
+                research_context=research.evidence_context(live_result),
+                intent_context=(
+                    f"Detected intent: {intent_result['intent']}. "
+                    "This is a current anime research request. Answer from the supplied evidence only. "
+                    f"User query: {normalized_text}"
+                ),
+            )
+        else:
+            # Use corrected wording for understanding while preserving original transcript.
+            ai_history = [dict(item) for item in history]
+            for history_index in range(len(ai_history) - 1, -1, -1):
+                if ai_history[history_index].get("role") == "user":
+                    ai_history[history_index]["content"] = normalized_text
+                    break
             answer, provider, usage = await context.application.bot_data["ai"].reply(
                 ai_history, profile.get("preferred_language"),
                 memory_summary=summary_text,
@@ -543,12 +557,16 @@ async def chat_message(update: Update, context) -> None:
             usage.get("total_tokens"),
         )
 
-        if usage:
-            try:
-                await db.log_ai_usage(user.id, provider, usage, usage.get("latency_ms"))
-            except Exception as usage_exc:
-                # Telemetry must never make a successful user-facing answer fail.
-                log.warning("AI usage persistence skipped (%s)", type(usage_exc).__name__)
+        for usage_provider, usage_record in (
+            (live_result.get("provider") if live_result else None, research_usage),
+            (provider, usage),
+        ):
+            if usage_record:
+                try:
+                    await db.log_ai_usage(user.id, usage_provider or provider, usage_record, usage_record.get("latency_ms"))
+                except Exception as usage_exc:
+                    # Telemetry must never make a successful user-facing answer fail.
+                    log.warning("AI usage persistence skipped (%s)", type(usage_exc).__name__)
 
         if metadata and metadata.get("cover"):
             try:

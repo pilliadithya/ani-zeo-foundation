@@ -63,3 +63,20 @@ def test_metadata_cache_expires_and_returns_copy():
     cached = service._cached("naruto")
     cached["title"] = "changed"
     assert service._cached("naruto")["title"] == "Naruto"
+
+
+def test_named_anime_lookup_is_allowed_but_generic_explanation_is_not():
+    assert AnimeResearchService.scope_decision("Tell me about Frieren") == "anime"
+    assert AnimeResearchService.scope_decision("Explain photosynthesis") == "redirect"
+
+
+def test_router_includes_retrieved_data_as_untrusted_context():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Tell me about Frieren"}],
+        "english",
+        research_context="Title: Frieren\\nSource: AniList",
+    )
+    system = messages[0]["content"]
+    assert "Title: Frieren" in system
+    assert "untrusted reference only" in system

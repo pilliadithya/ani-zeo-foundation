@@ -51,7 +51,7 @@ class AnimeResearchService:
     }
     CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
     INTENT_ENTITIES = (
-        "one piece", "naruto", "boruto", "bleach", "dragon ball",
+        "one piece", "naruto", "boruto", "bleach", "dragon ball", "big three", "big 3",
         "demon slayer", "jujutsu kaisen", "attack on titan",
         "my hero academia", "frieren", "solo leveling", "death note",
         "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku",
@@ -108,13 +108,24 @@ class AnimeResearchService:
             re.search(r"\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\b", previous)
         )
         entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
-        anime_scope = bool(ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected) or has_context)
+        explicit_anime_scope = bool(
+            ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected)
+        )
+        followup_candidate = bool(
+            has_context
+            and len(corrected.split()) <= 10
+            and re.search(
+                r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|why|how|which one|tell me more|continue)\b",
+                lower,
+            )
+        )
+        anime_scope = explicit_anime_scope or followup_candidate
 
         if GREETING.fullmatch(corrected):
             intent = "greeting"
         elif not corrected or (OFF_TOPIC.search(corrected) and not anime_scope):
             intent = "off_topic"
-        elif LIVE.search(corrected):
+        elif LIVE.search(corrected) and anime_scope:
             intent = "live_news"
         elif re.search(r"\b(recommend|recommendations|suggest|similar to|like .+ anime|top \d+ anime)\b", lower):
             intent = "recommendation"
@@ -124,7 +135,7 @@ class AnimeResearchService:
             intent = "character_question"
         elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):
             intent = "industry_question"
-        elif has_context and len(corrected.split()) <= 10:
+        elif followup_candidate:
             intent = "follow_up"
         else:
             intent = "anime_question" if anime_scope else "unclear"

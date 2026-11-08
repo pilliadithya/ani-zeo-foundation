@@ -153,7 +153,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     }
 
 
-def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
+def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime_relevance: bool = True) -> dict:
     """Validate evidence shape/relevance and assign conservative provenance labels."""
     accepted = []
     rejected = []
@@ -187,7 +187,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         haystack = f"{title} {snippet} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)
         query_relevant = not query_terms or any(term in haystack or term.rstrip('s') in haystack for term in query_terms)
-        if not anime_relevant or not query_relevant:
+        if (require_anime_relevance and not anime_relevant) or not query_relevant:
             rejected.append("off_topic")
             continue
 

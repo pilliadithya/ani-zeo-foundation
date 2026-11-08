@@ -15,8 +15,8 @@ JIKAN = "https://api.jikan.moe/v4/anime"
 REDIRECT = "I'm Ani Zeo, your anime companion, so I can help with anime and manga topics. 🎌"
 ANIME = re.compile(r"\b(anime|manga|manhwa|manhua|light novel|watch order|read order|filler|canon|anime studio|seiyuu|voice actor|anime character|anime film|anime movie|anime season|anime episode|japanese animation|shonen|shoujo|seinen|isekai)\b", re.I)
 OFF_TOPIC = re.compile(r"\b(python|javascript|typescript|programming|write code|debug code|cybersecurity|ethical hacking|sql query|homework|politics|stock market|crypto|investment|malware|exploit code)\b", re.I)
-GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye)(?:\s+bro)?[!.? ]*$", re.I)
-LIVE = re.compile(r"\b(latest|today|currently|right now|this week|recent|breaking|news|announced|announcement|airing now|airing today|release date|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
+GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye)(?:\s+(?:ani zeo|bro))*[!.? ]*$", re.I)
+LIVE = re.compile(r"\b(latest|newest|today|currently|right now|this week|recent|breaking|news|update|updates|just announced|announced|announcement|airing now|airing today|release date|release updates|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
 TITLE = re.compile(r"^(?:tell me about|info about|information about|details about|who is|watch order for|watch order of|read order for|read order of)\s+(.{2,80})$", re.I)
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
@@ -49,7 +49,8 @@ class AnimeResearchService:
         "charcter": "character", "episdoe": "episode",
         "eposide": "episode", "stduio": "studio",
     }
-    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")\n    INTENT_ENTITIES = (
+    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
+    INTENT_ENTITIES = (
         "one piece", "naruto", "boruto", "bleach", "dragon ball",
         "demon slayer", "jujutsu kaisen", "attack on titan",
         "my hero academia", "frieren", "solo leveling", "death note",
@@ -59,7 +60,7 @@ class AnimeResearchService:
 
     @classmethod
     def correct_typos(cls, text):
-        """Conservative anime-aware correction; never rewrite unknown names by guess."""
+        """Conservative anime-aware correction; only correct known domain vocabulary."""
         corrected = re.sub(r"\s+", " ", (text or "").strip())
         for pattern, replacement in cls.TYPO_PHRASES:
             corrected = re.sub(pattern, replacement, corrected, flags=re.I)
@@ -67,8 +68,29 @@ class AnimeResearchService:
         for word in words:
             lower = word.casefold()
             replacement = cls.TYPO_WORDS.get(lower)
+            if not replacement and len(lower) >= 5 and lower not in {
+                "about", "which", "there", "their", "today", "where",
+                "would", "could", "should", "please", "hello",
+            }:
+                matches = difflib.get_close_matches(
+                    lower, cls.CORRECTION_VOCAB, n=2, cutoff=0.88
+                )
+                if matches:
+                    first_score = difflib.SequenceMatcher(None, lower, matches[0]).ratio()
+                    second_score = (
+                        difflib.SequenceMatcher(None, lower, matches[1]).ratio()
+                        if len(matches) > 1 else 0.0
+                    )
+                    if first_score - second_score >= 0.08:
+                        replacement = matches[0]
             if replacement:
-                corrected = re.sub(rf"\b{re.escape(word)}\b", replacement, corrected, count=1, flags=re.I)
+                corrected = re.sub(
+                    rf"\b{re.escape(word)}\b",
+                    replacement,
+                    corrected,
+                    count=1,
+                    flags=re.I,
+                )
         return corrected
 
     @classmethod
@@ -102,7 +124,7 @@ class AnimeResearchService:
             intent = "character_question"
         elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):
             intent = "industry_question"
-        elif has_context and len(corrected.split()) <= 10 and not anime_scope:
+        elif has_context and len(corrected.split()) <= 10:
             intent = "follow_up"
         else:
             intent = "anime_question" if anime_scope else "unclear"
@@ -375,7 +397,7 @@ class AnimeResearchService:
                     response.raise_for_status()
                     return response.json().get("results") or []
 
-                if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+                if re.search(r"\bbig\s*3\b|big three", query, re.I):
                     franchise_queries = [
                         f"One Piece anime official news announcements updates {today}",
                         f"Naruto Boruto anime official news announcements updates {today}",

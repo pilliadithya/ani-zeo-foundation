@@ -490,7 +490,7 @@ async def chat_message(update: Update, context) -> None:
             if live_result is None:
                 log.info("Live search primary unavailable; trying sequential backup provider=tavily")
                 live_result = await research.tavily_search_answer(
-                    message.text, profile.get("preferred_language")
+                    normalized_text, profile.get("preferred_language")
                 )
             if live_result is None:
                 # Fail closed: never answer a current-news request from stale model memory.

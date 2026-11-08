@@ -476,3 +476,20 @@ def test_cost_estimate_requires_explicit_rates_and_actual_usage():
     assert cost == 0.0003
     assert router._estimate_cost_usd("gemini", {"input_tokens": None, "output_tokens": 500}) is None
     assert router._estimate_cost_usd("groq", {"input_tokens": 1000, "output_tokens": 500}) is None
+
+
+def test_research_context_uses_evidence_only_writer_instructions():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Latest One Piece manga update?"}],
+        "tenglish",
+        research_context=(
+            "CURRENT ANIME RESEARCH EVIDENCE\\n"
+            "Overall evidence status: reported_by_reputable_sources\\n"
+            "Excerpt: A publisher reported a new announcement."
+        ),
+    )
+    system = messages[0]["content"]
+    assert "RESEARCH RESPONSE MODE" in system
+    assert "Never turn a search excerpt" in system
+    assert "CURRENT ANIME RESEARCH EVIDENCE" in system

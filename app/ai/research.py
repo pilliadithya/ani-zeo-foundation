@@ -10,7 +10,7 @@ ANIME = re.compile(r"\b(anime|manga|manhwa|manhua|light novel|watch order|read o
 OFF_TOPIC = re.compile(r"\b(python|javascript|typescript|programming|write code|debug code|cybersecurity|ethical hacking|sql query|homework|politics|stock market|crypto|investment|malware|exploit code)\b", re.I)
 GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye)[!.? ]*$", re.I)
 LIVE = re.compile(r"\b(latest|today|currently|right now|this week|recent|breaking|news|announced|announcement|airing now|airing today|release date|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
-TITLE = re.compile(r"^(?:tell me about|info about|information about|details about|what is|explain|who is|watch order for|watch order of|read order for|read order of)\s+(.{2,80})$", re.I)
+TITLE = re.compile(r"^(?:tell me about|info about|information about|details about|who is|watch order for|watch order of|read order for|read order of)\s+(.{2,80})$", re.I)
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
 class AnimeResearchService:

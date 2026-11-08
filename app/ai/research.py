@@ -343,7 +343,7 @@ class AnimeResearchService:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
-                    "generationConfig":{"temperature":0.2,"maxOutputTokens":research_output_budget}})
+                    "generationConfig":{"maxOutputTokens":research_output_budget}})
                 res.raise_for_status(); payload = res.json()
             usage_meta = payload.get("usageMetadata") or {}
             usage = {

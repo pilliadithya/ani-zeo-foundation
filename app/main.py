@@ -20,6 +20,7 @@ from telegram.ext import (
 )
 
 from app.ai.router import AIRouter
+from app.ai.fact_verifier import validate_generated_answer, verification_fallback
 from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
@@ -533,6 +534,18 @@ async def chat_message(update: Update, context) -> None:
                     f"User query: {normalized_text}"
                 ),
             )
+            fact_check = validate_generated_answer(answer, live_result)
+            if not fact_check["ok"]:
+                log.warning(
+                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s unsupported_confirmation=%s conflicted_chapters=%s)",
+                    fact_check["unsupported_chapters"],
+                    fact_check["unsupported_dates"],
+                    fact_check["unsupported_confirmation"],
+                    fact_check["conflicted_chapters"],
+                )
+                answer = verification_fallback(
+                    profile.get("preferred_language"), fact_check
+                )
         else:
             # Use corrected wording for understanding while preserving original transcript.
             ai_history = [dict(item) for item in history]

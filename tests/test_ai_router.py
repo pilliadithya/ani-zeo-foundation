@@ -205,7 +205,7 @@ async def test_google_grounding_extracts_citations(monkeypatch):
         async def __aexit__(self, *args): pass
         async def post(self, *args, **kwargs):
             assert kwargs["json"]["tools"] == [{"google_search": {}}]
-            assert kwargs["json"]["generationConfig"]["temperature"] == 0.2
+            assert "temperature" not in kwargs["json"]["generationConfig"]
             return FakeResponse()
 
     monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)

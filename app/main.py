@@ -466,10 +466,18 @@ async def chat_message(update: Update, context) -> None:
         history = await db.get_recent_messages(user.id, limit=8)
 
         live_result = None
-        if research.needs_live_search(message.text):
+        is_live_request = research.needs_live_search(message.text)
+        if is_live_request:
             live_result = await research.google_grounded_answer(
                 message.text, profile.get("preferred_language")
             )
+            if live_result is None:
+                # Fail closed: never answer a current-news request from stale model memory.
+                await message.reply_text(
+                    "I couldn’t verify the latest anime information from current sources right now. "
+                    "Please try again shortly."
+                )
+                return
 
         metadata = None
         title = None

@@ -10,6 +10,7 @@ create table if not exists public.ai_usage_events (
     total_tokens integer,
     cached_input_tokens integer,
     thinking_tokens integer,
+    tool_tokens integer,
     estimated_input_tokens integer,
     latency_ms integer,
     finish_reason text,
@@ -22,6 +23,7 @@ create table if not exists public.ai_usage_events (
         (total_tokens is null or total_tokens >= 0) and
         (cached_input_tokens is null or cached_input_tokens >= 0) and
         (thinking_tokens is null or thinking_tokens >= 0) and
+        (tool_tokens is null or tool_tokens >= 0) and
         (estimated_input_tokens is null or estimated_input_tokens >= 0) and
         (latency_ms is null or latency_ms >= 0)
     )

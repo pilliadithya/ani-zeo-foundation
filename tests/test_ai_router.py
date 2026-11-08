@@ -166,3 +166,72 @@ async def test_tavily_backup_rejects_results_without_https_sources(monkeypatch):
     monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
     service = AnimeResearchService(tavily_api_key="test-key")
     assert await service.tavily_search_answer("Latest anime news") is None
+
+
+def test_grounding_default_uses_supported_current_flash_model():
+    service = AnimeResearchService(api_key="test-key")
+    assert service.model == "gemini-3.8-flash"
+
+
+@pytest.mark.asyncio
+async def test_google_grounding_extracts_citations(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates": [{
+                "content": {"parts": [{"text": "Upcoming anime release: Example title."}]},
+                "groundingMetadata": {"groundingChunks": [
+                    {"web": {"title": "Official source", "uri": "https://example.com/anime"}}
+                ]},
+            }]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs):
+            assert kwargs["json"]["tools"] == [{"google_search": {}}]
+            assert kwargs["json"]["generationConfig"]["temperature"] == 1.0
+            return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(api_key="test-key")
+    result = await service.google_grounded_answer("Latest anime news")
+    assert result["citations"][0]["url"] == "https://example.com/anime"
+    assert result["answer"].startswith("Upcoming anime")
+
+
+@pytest.mark.asyncio
+async def test_tavily_uses_source_snippets_not_unverified_answer(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {
+                "answer": "This unverified summary must not be displayed.",
+                "results": [{
+                    "title": "Official anime release update",
+                    "url": "https://example.com/release",
+                    "content": "The studio confirmed a future release.",
+                    "published_date": "2026-11-07",
+                }],
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs):
+            assert kwargs["json"]["include_answer"] is False
+            return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(tavily_api_key="test-key")
+    result = await service.tavily_search_answer("Upcoming anime releases")
+    assert "Official anime release update" in result["answer"]
+    assert "2026-11-07" in result["answer"]
+    assert "unverified summary" not in result["answer"]
+    assert "not a verified release calendar" in result["answer"]

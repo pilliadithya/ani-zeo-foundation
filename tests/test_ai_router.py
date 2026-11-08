@@ -384,10 +384,11 @@ async def test_tavily_big_three_results_are_grouped_and_compact(monkeypatch):
         "Give me latest Big Three anime updates"
     )
     assert result is not None
-    assert "**One Piece**" in result["answer"]
-    assert "**Bleach**" in result["answer"]
+    assert "**One Piece:**" in result["answer"]
+    assert "**Bleach:**" in result["answer"]
     assert "DayOne" not in result["answer"]
-    assert "example.com" in result["answer"]
+    assert "ANIME NEWS" not in result["answer"]
+    assert "Checked 2026" not in result["answer"]
     assert len(result["answer"]) < 1800
 
 

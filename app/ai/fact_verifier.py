@@ -87,11 +87,6 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
             rejected.append("off_topic")
             continue
 
-        # One URL per host avoids counting syndicated copies as independent corroboration.
-        if host in seen_domains:
-            rejected.append("duplicate_publisher")
-            continue
-
         if _matches_domain(host, PRIMARY_DOMAINS):
             status = "primary_source"
         elif _matches_domain(host, REPUTABLE_NEWS_DOMAINS):

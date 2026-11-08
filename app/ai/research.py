@@ -586,6 +586,15 @@ class AnimeResearchService:
             "Important: search excerpts are evidence leads, not proof of every implied claim.",
             "Only describe something as officially confirmed when a primary source explicitly confirms it.",
         ]
+        conflicts = verification.get("conflicts") or []
+        for conflict in conflicts[:5]:
+            lines.append(
+                "VERIFICATION CONFLICT: Chapter "
+                + str(conflict.get("chapter"))
+                + " has conflicting nearby dates in the collected excerpts: "
+                + ", ".join(conflict.get("dates") or [])
+                + ". Do not state a single date as confirmed."
+            )
         for index, item in enumerate(items[:5], 1):
             lines.extend([
                 f"Evidence {index} [{item.get('verification_status', 'unverified')}]",

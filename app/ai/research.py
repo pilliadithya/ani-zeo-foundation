@@ -107,7 +107,22 @@ class AnimeResearchService:
             if len(sentence) < 15 or sentence.startswith(("#", "**")):
                 continue
             start, end = match.span()
-            if not any(start < source_end and end > source_start for source_start, source_end in spans):
+            # Require grounding coverage for most of each factual sentence; a tiny
+            # overlap at a sentence boundary must not validate an unrelated claim.
+            covered = []
+            for source_start, source_end in spans:
+                left, right = max(start, source_start), min(end, source_end)
+                if left < right:
+                    covered.append((left, right))
+            covered.sort()
+            merged = []
+            for left, right in covered:
+                if merged and left <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], right))
+                else:
+                    merged.append((left, right))
+            covered_length = sum(right - left for left, right in merged)
+            if covered_length / max(1, end - start) < 0.5:
                 return False
         return True
 

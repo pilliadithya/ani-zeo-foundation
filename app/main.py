@@ -510,8 +510,11 @@ async def chat_message(update: Update, context) -> None:
                     await message.reply_text(REDIRECT)
                     return
 
+        usage = {}
         if live_result:
-            answer, provider = live_result["answer"], live_result.get("provider", "gemini-google-search")
+            answer = live_result["answer"]
+            provider = live_result.get("provider", "gemini-google-search")
+            usage = live_result.get("usage") or {}
         else:
             # Use the corrected text for understanding while preserving the exact
             # original user message in the database and visible chat transcript.
@@ -521,7 +524,7 @@ async def chat_message(update: Update, context) -> None:
                     ai_history[history_index]["content"] = normalized_text
                     break
 
-            answer, provider = await context.application.bot_data["ai"].reply(
+            answer, provider, usage = await context.application.bot_data["ai"].reply(
                 ai_history, profile.get("preferred_language"),
                 memory_summary=summary_text,
                 research_context=research.context_for(metadata),
@@ -532,7 +535,13 @@ async def chat_message(update: Update, context) -> None:
             )
 
         await db.save_message(user.id, "assistant", answer)
-        log.info("AI reply completed via provider=%s", provider)
+        log.info(
+            "AI reply completed provider=%s input_tokens=%s output_tokens=%s total_tokens=%s",
+            provider,
+            usage.get("input_tokens"),
+            usage.get("output_tokens"),
+            usage.get("total_tokens"),
+        )
 
         if metadata and metadata.get("cover"):
             try:

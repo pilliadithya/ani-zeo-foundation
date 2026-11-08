@@ -45,3 +45,30 @@ def test_big_three_query_does_not_require_literal_big_three_in_source():
         {"title": "Bleach anime news", "url": "https://oricon.co.jp/bleach", "snippet": "Bleach anime announcement."},
     ], "Latest Big Three anime updates")
     assert len(result["items"]) == 1
+
+
+def test_conflicting_dates_for_same_chapter_are_flagged():
+    result = verify_evidence([
+        {
+            "title": "One Piece Chapter 1197 release date",
+            "url": "https://animenewsnetwork.com/one-piece-1197",
+            "snippet": "One Piece Chapter 1197 is scheduled for November 1, 2026.",
+        },
+        {
+            "title": "One Piece Chapter 1197 schedule update",
+            "url": "https://oricon.co.jp/one-piece-1197",
+            "snippet": "One Piece Chapter 1197 will be available on November 2, 2026.",
+        },
+    ], "One Piece Chapter 1197 release date")
+    assert result["conflicts"]
+    assert result["conflicts"][0]["chapter"] == "1197"
+    assert len(result["conflicts"][0]["dates"]) == 2
+
+
+def test_different_chapters_with_different_dates_are_not_a_conflict():
+    result = verify_evidence([{
+        "title": "One Piece chapter release schedule",
+        "url": "https://animenewsnetwork.com/one-piece-schedule",
+        "snippet": "Chapter 1196 released on October 18, 2026. Chapter 1197 releases on November 1, 2026.",
+    }], "One Piece manga chapter release schedule")
+    assert result["conflicts"] == []

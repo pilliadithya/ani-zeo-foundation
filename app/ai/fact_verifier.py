@@ -166,6 +166,8 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
             "confirmed", "today", "recent", "about", "what", "tell", "big", "three", "give", "get",
         }
     }
+    if re.search(r"\bbig\s*3\b|big three", query, re.I):
+        query_terms = set()
 
     for item in items or []:
         if not isinstance(item, dict):

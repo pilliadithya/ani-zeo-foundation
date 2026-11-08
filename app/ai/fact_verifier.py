@@ -82,7 +82,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
 
         haystack = f"{title} {snippet} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)
-        query_relevant = not query_terms or any(term in haystack for term in query_terms)
+        query_relevant = not query_terms or any(term in haystack or term.rstrip('s') in haystack for term in query_terms)
         if not anime_relevant or not query_relevant:
             rejected.append("off_topic")
             continue

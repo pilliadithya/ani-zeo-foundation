@@ -543,7 +543,7 @@ async def chat_message(update: Update, context) -> None:
                         "If no reliable recent update is present for a franchise, say you could not verify a notable update for it; do not invent one. "
                         "Talk like an anime fan chatting with a friend, not a news article. Use natural English or the user's selected language, "
                         "a few fitting emojis, and concise explanations. Never pad with unrelated gaming, store, or general entertainment news. "
-                        if re.search(r"\\bbig\\s*3\\b|big three", normalized_text, re.I) else ""
+                        if re.search(r"\bbig\s*3\b|big three", normalized_text, re.I) else ""
                     )
                     + f"User query: {normalized_text}"
                 ),

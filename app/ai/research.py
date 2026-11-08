@@ -50,10 +50,10 @@ class AnimeResearchService:
         title = str(item.get("title") or "")
         content = str(item.get("content") or "")
         url = str(item.get("url") or "")
-        haystack = re.sub(r"\\s+", " ", f"{title} {content} {url}").casefold()
+        haystack = re.sub(r"\s+", " ", f"{title} {content} {url}").casefold()
 
         # "Big Three" is ambiguous outside anime; require a recognizable franchise.
-        if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+        if re.search(r"\bbig\s*3\b|big three", query, re.I):
             return any(term in haystack for term in (
                 "one piece", "naruto", "boruto", "bleach",
                 "luffy", "ichigo", "masashi kishimoto",
@@ -227,7 +227,7 @@ class AnimeResearchService:
         try:
             async with httpx.AsyncClient(timeout=12) as client:
                 today = date.today().isoformat()
-                if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+                if re.search(r"\bbig\s*3\b|big three", query, re.I):
                     targeted_query = (
                         "One Piece OR Naruto OR Boruto OR Bleach official anime news "
                         "confirmed announcements release updates"
@@ -262,16 +262,16 @@ class AnimeResearchService:
                 url = item.get("url")
                 if not isinstance(url, str) or not url.startswith("https://") or url in seen:
                     continue
-                snippet = re.sub(r"\\s+", " ", str(item.get("content") or "")).strip()
+                snippet = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
                 if not snippet or not self._is_relevant_anime_result(item, query):
                     rejected += 1
                     continue
                 seen.add(url)
-                title = re.sub(r"\\s+", " ", str(item.get("title") or "Source")).strip()[:100]
+                title = re.sub(r"\s+", " ", str(item.get("title") or "Source")).strip()[:100]
                 published = str(item.get("published_date") or "").strip()[:10]
                 source_date = f" (source published: {published})" if published else ""
                 citations.append({"title": title, "url": url})
-                findings.append(f"• **{title}**{source_date}\\n  {snippet[:420]}")
+                findings.append(f"• **{title}**{source_date}\n  {snippet[:420]}")
                 if len(citations) >= 5:
                     break
             if not citations or not findings:

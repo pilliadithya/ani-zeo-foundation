@@ -472,6 +472,11 @@ async def chat_message(update: Update, context) -> None:
                 message.text, profile.get("preferred_language")
             )
             if live_result is None:
+                log.info("Live search primary unavailable; trying sequential backup provider=tavily")
+                live_result = await research.tavily_search_answer(
+                    message.text, profile.get("preferred_language")
+                )
+            if live_result is None:
                 # Fail closed: never answer a current-news request from stale model memory.
                 await message.reply_text(
                     "I couldn’t verify the latest anime information from current sources right now. "
@@ -490,7 +495,7 @@ async def chat_message(update: Update, context) -> None:
                     return
 
         if live_result:
-            answer, provider = live_result["answer"], "gemini-google-search"
+            answer, provider = live_result["answer"], live_result.get("provider", "gemini-google-search")
         else:
             answer, provider = await context.application.bot_data["ai"].reply(
                 history, profile.get("preferred_language"),
@@ -572,7 +577,7 @@ async def lifespan(app: FastAPI):
 
     telegram_app.bot_data["db"] = db
     telegram_app.bot_data["ai"] = AIRouter(settings)
-    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model)
+    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key)
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))

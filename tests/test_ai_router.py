@@ -121,3 +121,48 @@ async def test_live_search_failure_does_not_cache_unverified_answer(monkeypatch)
     service = AnimeResearchService(api_key="test-key")
     assert await service.google_grounded_answer("Latest anime news") is None
     assert not any(key.startswith("live:") for key in service.cache)
+
+
+@pytest.mark.asyncio
+async def test_tavily_backup_returns_cited_search_results(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {
+                "answer": "A new anime announcement was published.",
+                "results": [{"title": "Official announcement", "url": "https://example.com/news", "content": "Official studio update."}],
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(tavily_api_key="test-key")
+    result = await service.tavily_search_answer("Latest anime announcements")
+    assert result["provider"] == "tavily"
+    assert result["citations"][0]["url"] == "https://example.com/news"
+
+
+@pytest.mark.asyncio
+async def test_tavily_backup_rejects_results_without_https_sources(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"answer": "Uncited answer", "results": [{"title": "Bad source", "url": "http://example.com", "content": "No secure source."}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(tavily_api_key="test-key")
+    assert await service.tavily_search_answer("Latest anime news") is None

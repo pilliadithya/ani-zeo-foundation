@@ -1,8 +1,11 @@
 """Quota-aware anime-only public data and live-search integration."""
+import logging
 import re
 import time
 from datetime import date
 import httpx
+
+log = logging.getLogger(__name__)
 
 ANILIST = "https://graphql.anilist.co"
 JIKAN = "https://api.jikan.moe/v4/anime"
@@ -15,10 +18,12 @@ TITLE = re.compile(r"^(?:tell me about|info about|information about|details abou
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
 class AnimeResearchService:
-    def __init__(self, api_key="", model="gemini-2.5-flash"):
+    def __init__(self, api_key="", model="gemini-2.5-flash", tavily_api_key=""):
         self.api_key, self.model = api_key, model
+        self.tavily_api_key = tavily_api_key
         self.cache = {}
         self.grounding_disabled_until = 0.0
+        self.tavily_disabled_until = 0.0
 
     @staticmethod
     def scope_decision(text, history=None):
@@ -122,15 +127,84 @@ class AnimeResearchService:
                 if len(citations) >= 5: break
             # A generated answer without grounding citations is not verified live information.
             if not citations:
+                log.warning("Live search provider=gemini outcome=unverified reason=missing_grounding_citations")
                 return None
             result = {"answer":answer[:3500],"citations":citations}
             self._store(cache_key, result, ttl=300)
             return result
         except httpx.HTTPStatusError as exc:
-            self.grounding_disabled_until = time.monotonic() + (60 if exc.response.status_code == 429 else 30)
+            status = exc.response.status_code
+            category = "rate_limited" if status == 429 else "authentication" if status in (401, 403) else "provider_error"
+            log.warning("Live search provider=gemini outcome=failed category=%s status=%s", category, status)
+            self.grounding_disabled_until = time.monotonic() + (60 if status == 429 else 30)
             return None
-        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as exc:
+            log.warning("Live search provider=gemini outcome=failed category=%s", type(exc).__name__)
             self.grounding_disabled_until = time.monotonic() + 30
+            return None
+
+    async def tavily_search_answer(self, query, language=None):
+        """One sequential backup search. Returns only answers with source URLs."""
+        if not self.tavily_api_key or time.monotonic() < self.tavily_disabled_until:
+            log.info("Live search provider=tavily outcome=skipped reason=not_configured_or_cooldown")
+            return None
+        cache_key = "tavily:" + re.sub(r"\s+", " ", query.casefold()).strip()
+        cached = self._cached(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                response = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": self.tavily_api_key,
+                        "query": query[:700] + " anime",
+                        "topic": "news",
+                        "search_depth": "basic",
+                        "days": 30,
+                        "max_results": 5,
+                        "include_answer": True,
+                        "include_raw_content": False,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+            citations, snippets = [], []
+            seen = set()
+            for item in payload.get("results") or []:
+                url = item.get("url")
+                if not isinstance(url, str) or not url.startswith("https://") or url in seen:
+                    continue
+                seen.add(url)
+                citations.append({"title": str(item.get("title") or "Source")[:100], "url": url})
+                content = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
+                if content:
+                    snippets.append(content[:500])
+                if len(citations) >= 5:
+                    break
+            if not citations:
+                log.warning("Live search provider=tavily outcome=unverified reason=no_source_results")
+                return None
+            answer = str(payload.get("answer") or "").strip()
+            if not answer:
+                answer = "Here are the latest search findings:\n" + "\n".join(
+                    f"• {snippet}" for snippet in snippets[:4]
+                )
+            if not answer.strip():
+                return None
+            result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}
+            self._store(cache_key, result, ttl=300)
+            log.info("Live search provider=tavily outcome=success sources=%s", len(citations))
+            return result
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            category = "rate_limited" if status == 429 else "authentication" if status in (401, 403) else "provider_error"
+            log.warning("Live search provider=tavily outcome=failed category=%s status=%s", category, status)
+            self.tavily_disabled_until = time.monotonic() + (60 if status == 429 else 30)
+            return None
+        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+            log.warning("Live search provider=tavily outcome=failed category=%s", type(exc).__name__)
+            self.tavily_disabled_until = time.monotonic() + 30
             return None
 
     @staticmethod

@@ -1,4 +1,5 @@
 """Quota-aware anime-only public data and live-search integration."""
+import difflib
 import logging
 import re
 import time
@@ -26,23 +27,111 @@ class AnimeResearchService:
         self.grounding_disabled_until = 0.0
         self.tavily_disabled_until = 0.0
 
-    @staticmethod
-    def scope_decision(text, history=None):
-        text = (text or "").strip()
-        if GREETING.fullmatch(text): return "greeting"
-        if not text or OFF_TOPIC.search(text): return "redirect"
-        if ANIME.search(text): return "anime"
-        previous = " ".join(str(x.get("content", ""))[:400] for x in (history or [])[-4:])
-        if ANIME.search(previous) or TITLE.fullmatch(text): return "anime"
-        return "redirect"
+    TYPO_PHRASES = (
+        (r"\\bone\\s+peice\\b", "One Piece"),
+        (r"\\bjujutsu\\s+kaisen\\b", "Jujutsu Kaisen"),
+        (r"\\bdemon\\s+slayer\\b", "Demon Slayer"),
+        (r"\\battack\\s+on\\s+titans?\\b", "Attack on Titan"),
+        (r"\\bmy\\s+hero\\s+academia\\b", "My Hero Academia"),
+        (r"\\bwatch\\s+oder\\b", "watch order"),
+    )
+    TYPO_WORDS = {
+        "anmie": "anime", "anim": "anime", "mangae": "manga",
+        "narutoo": "Naruto", "narutto": "Naruto", "bleech": "Bleach",
+        "blech": "Bleach", "borutto": "Boruto", "lufy": "Luffy",
+        "zorro": "Zoro", "gojo": "Gojo", "sukuna": "Sukuna",
+        "relese": "release", "relase": "release", "upadte": "update",
+        "updatse": "updates", "announcment": "announcement",
+        "anounce": "announce", "reccomend": "recommend",
+        "recomend": "recommend", "recomendation": "recommendation",
+        "recomendations": "recommendations", "sugest": "suggest",
+        "charcter": "character", "episdoe": "episode",
+        "eposide": "episode", "stduio": "studio",
+    }
+    INTENT_ENTITIES = (
+        "one piece", "naruto", "boruto", "bleach", "dragon ball",
+        "demon slayer", "jujutsu kaisen", "attack on titan",
+        "my hero academia", "frieren", "solo leveling", "death note",
+        "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku",
+        "tanjiro", "eren", "anilist", "crunchyroll",
+    )
 
-    @staticmethod
-    def needs_live_search(text):
-        return bool(LIVE.search(text or ""))
+    @classmethod
+    def correct_typos(cls, text):
+        """Conservative anime-aware correction; never rewrite unknown names by guess."""
+        corrected = re.sub(r"\\s+", " ", (text or "").strip())
+        for pattern, replacement in cls.TYPO_PHRASES:
+            corrected = re.sub(pattern, replacement, corrected, flags=re.I)
+        words = re.findall(r"[A-Za-z]+", corrected)
+        for word in words:
+            lower = word.casefold()
+            replacement = cls.TYPO_WORDS.get(lower)
+            if replacement:
+                corrected = re.sub(rf"\\b{re.escape(word)}\\b", replacement, corrected, count=1, flags=re.I)
+        return corrected
 
-    @staticmethod
-    def extract_title(text):
-        match = TITLE.fullmatch((text or "").strip())
+    @classmethod
+    def detect_intent(cls, text, history=None):
+        """Classify product intent before routing; typo correction is conservative and explainable."""
+        original = (text or "").strip()
+        corrected = cls.correct_typos(original)
+        lower = corrected.casefold()
+        previous = " ".join(
+            str(x.get("content", ""))[:400]
+            for x in (history or [])[-6:]
+            if isinstance(x, dict)
+        ).casefold()
+        has_context = bool(
+            re.search(r"\\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\\b", previous)
+        )
+        entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
+        anime_scope = bool(ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected) or has_context)
+
+        if GREETING.fullmatch(corrected):
+            intent = "greeting"
+        elif not corrected or (OFF_TOPIC.search(corrected) and not anime_scope):
+            intent = "off_topic"
+        elif LIVE.search(corrected):
+            intent = "live_news"
+        elif re.search(r"\\b(recommend|recommendations|suggest|similar to|like .+ anime|top \\d+ anime)\\b", lower):
+            intent = "recommendation"
+        elif re.search(r"\\b(watch order|watching order|chronological order|release order|read order)\\b", lower):
+            intent = "watch_order"
+        elif re.search(r"\\b(who is|character|powers|ability|backstory|relationship)\\b", lower):
+            intent = "character_question"
+        elif re.search(r"\\b(studio|director|animator|animation staff|voice actor|seiyuu)\\b", lower):
+            intent = "industry_question"
+        elif has_context and len(corrected.split()) <= 10 and not anime_scope:
+            intent = "follow_up"
+        else:
+            intent = "anime_question" if anime_scope else "unclear"
+
+        if intent == "off_topic" or intent == "unclear":
+            scope = "redirect"
+        elif intent == "greeting":
+            scope = "greeting"
+        else:
+            scope = "anime"
+
+        return {
+            "intent": intent,
+            "scope": scope,
+            "normalized_text": corrected,
+            "was_corrected": corrected != original,
+            "confidence": 0.95 if intent in {"greeting", "live_news", "watch_order", "recommendation"} else (0.82 if anime_scope else 0.55),
+        }
+
+    @classmethod
+    def scope_decision(cls, text, history=None):
+        return cls.detect_intent(text, history)["scope"]
+
+    @classmethod
+    def needs_live_search(cls, text):
+        return bool(LIVE.search(cls.correct_typos(text)))
+
+    @classmethod
+    def extract_title(cls, text):
+        match = TITLE.fullmatch(cls.correct_typos(text))
         return match.group(1).strip(" .?!") if match else None
 
     @staticmethod

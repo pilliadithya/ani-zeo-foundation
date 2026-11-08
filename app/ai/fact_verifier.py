@@ -54,26 +54,30 @@ def _matches_domain(host: str, domains: set[str]) -> bool:
 def _chapter_date_claims(items: list[dict]) -> dict:
     """Find conflicting explicit dates attached to the same chapter number."""
     month_date = re.compile(
-        r"\\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
         r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
-        r"\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b",
+        r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b",
         re.I,
     )
-    iso_date = re.compile(r"\\b\\d{4}-\\d{2}-\\d{2}\\b")
+    iso_date = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
     claims = {}
     for item in items:
         text = f"{item.get('title', '')} {item.get('snippet', '')}"
-        chapters = set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", text, re.I))
+        chapters = set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", text, re.I))
         dates = set(match.group(0) for match in month_date.finditer(text))
         dates.update(match.group(0) for match in iso_date.finditer(text))
         for chapter in chapters:
             if dates:
                 claims.setdefault(chapter, set()).update(dates)
-    return {
-        "chapter": chapter,
-        "dates": sorted(dates),
-        "type": "conflicting_chapter_dates",
-    } for chapter, dates in claims.items() if len(dates) > 1
+    return [
+        {
+            "chapter": chapter,
+            "dates": sorted(dates),
+            "type": "conflicting_chapter_dates",
+        }
+        for chapter, dates in claims.items()
+        if len(dates) > 1
+    ]
 
 
 def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:

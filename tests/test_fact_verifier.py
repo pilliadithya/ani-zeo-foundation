@@ -31,13 +31,13 @@ def test_insecure_and_unrelated_sources_are_rejected():
     assert "off_topic" in result["rejected_reasons"]
 
 
-def test_same_publisher_is_not_counted_as_independent_confirmation():
+def test_multiple_articles_from_same_publisher_are_not_counted_as_independent_confirmation():
     result = verify_evidence([
         {"title": "One Piece update A", "url": "https://animenewsnetwork.com/a", "snippet": "One Piece manga news"},
         {"title": "One Piece update B", "url": "https://www.animenewsnetwork.com/b", "snippet": "One Piece manga news"},
     ], "One Piece manga news")
-    assert len(result["items"]) == 1
-    assert "duplicate_publisher" in result["rejected_reasons"]
+    assert len(result["items"]) == 2
+    assert result["independent_publishers"] == 1
 
 
 def test_big_three_query_does_not_require_literal_big_three_in_source():

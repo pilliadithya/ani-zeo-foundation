@@ -19,6 +19,20 @@ async def test_fallback_provider_used():
     assert usage.get('output_tokens') is None
     assert usage.get('estimated_input_tokens', 0) > 0
 @pytest.mark.asyncio
+async def test_live_research_can_prioritize_fast_backup_writer():
+    r = AIRouter(FakeSettings())
+    r.providers["gemini"] = FakeProvider("gemini", "a", error=RuntimeError("rate limited"))
+    r.providers["groq"] = FakeProvider("groq", "b", response="Three-franchise update")
+    answer, name, _ = await r.reply(
+        [{"role": "user", "content": "Give me latest Big Three anime updates"}],
+        "english",
+        provider_order=["groq", "openrouter", "gemini"],
+    )
+    assert answer == "Three-franchise update"
+    assert name == "groq"
+
+
+@pytest.mark.asyncio
 async def test_missing_keys_fails_cleanly():
     s=FakeSettings(); s.provider_order=["nvidia","openrouter"]
     with pytest.raises(RuntimeError,match="No AI provider"): await AIRouter(s).reply([{"role":"user","content":"hi"}])
@@ -442,6 +456,7 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
 
 def test_output_budget_scales_with_requested_depth():
     assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) == 180
+    assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) == 650
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) == 420
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) == 900
 

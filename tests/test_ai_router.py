@@ -12,8 +12,9 @@ class FakeSettings:
 @pytest.mark.asyncio
 async def test_fallback_provider_used():
     r=AIRouter(FakeSettings()); r.providers["gemini"]=FakeProvider("gemini","a",error=RuntimeError("offline")); r.providers["groq"]=FakeProvider("groq","b",response="Hello")
-    answer,name=await r.reply([{"role":"user","content":"hi"}],"english")
+    answer,name,usage=await r.reply([{"role":"user","content":"hi"}],"english")
     assert (answer,name)==("Hello","groq")
+    assert usage == {}
 @pytest.mark.asyncio
 async def test_missing_keys_fails_cleanly():
     s=FakeSettings(); s.provider_order=["nvidia","openrouter"]
@@ -432,3 +433,32 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
     detected = AnimeResearchService.detect_intent("What's the weather today?", history)
     assert detected["scope"] == "redirect"
     assert detected["intent"] == "unclear"
+
+
+def test_output_budget_scales_with_requested_depth():
+    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) == 180
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) == 420
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) == 900
+
+
+def test_token_estimate_is_nonzero_and_monotonic():
+    short = AIRouter.estimate_tokens("Naruto")
+    long = AIRouter.estimate_tokens("Naruto " * 100)
+    assert short >= 1
+    assert long > short
+
+
+@pytest.mark.asyncio
+async def test_reply_respects_configured_output_token_cap():
+    settings = FakeSettings()
+    settings.ai_max_output_tokens = 200
+    router = AIRouter(settings)
+    provider = FakeProvider("gemini", "a", response="Short answer")
+    router.providers["gemini"] = provider
+    answer, name, usage = await router.reply(
+        [{"role": "user", "content": "Explain the entire One Piece story in detail"}],
+        "english",
+    )
+    assert answer == "Short answer"
+    assert name == "gemini"
+    assert usage == {}

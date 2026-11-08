@@ -361,37 +361,49 @@ class AnimeResearchService:
             chunks = metadata.get("groundingChunks") or []
             supports = metadata.get("groundingSupports") or []
             citations, seen, supported_indices = [], set(), set()
+            evidence_by_index = {}
             for support in supports:
+                segment = support.get("segment") or {}
+                start_index = segment.get("startIndex")
+                end_index = segment.get("endIndex")
+                claim_text = ""
+                if isinstance(start_index, int) and isinstance(end_index, int):
+                    claim_text = answer[max(0, start_index):max(0, end_index)].strip()
                 for index in support.get("groundingChunkIndices") or []:
                     if isinstance(index, int) and 0 <= index < len(chunks):
                         uri = ((chunks[index].get("web") or {}).get("uri"))
                         if isinstance(uri, str) and uri.startswith("https://"):
                             supported_indices.add(index)
+                            if claim_text:
+                                evidence_by_index.setdefault(index, []).append(claim_text)
+            candidate_evidence = []
             for index, chunk in enumerate(chunks):
                 web = chunk.get("web") or {}
                 uri = web.get("uri")
                 if index in supported_indices and isinstance(uri, str) and uri.startswith("https://") and uri not in seen:
                     seen.add(uri)
-                    citations.append({"title":str(web.get("title") or "Source")[:100],"url":uri})
+                    title = str(web.get("title") or "Source")[:100]
+                    citations.append({"title": title, "url": uri})
+                    candidate_evidence.append({
+                        "title": title,
+                        "url": uri,
+                        "snippet": " ".join(evidence_by_index.get(index) or []) or answer[:600],
+                    })
                 if len(citations) >= 5:
                     break
             if not citations or not self._grounding_covers_answer(answer, supports):
                 log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            evidence = [{
-                "title": "Google Search grounded synthesis",
-                "url": citations[0]["url"],
-                "domain": urlparse(citations[0]["url"]).hostname or "Google Search",
-                "published": "",
-                "snippet": answer[:1_600],
-                "verification_status": "grounding_support_passed",
-            }]
-            verification = {
-                "overall_status": "google_grounding_claim_support_passed",
-                "primary_source_count": 0,
-                "reputable_source_count": 0,
-                "independent_publishers": len(citations),
-            }
+            verification = verify_evidence(candidate_evidence, query, limit=5)
+            evidence = verification["items"]
+            verification["grounding_claim_support_passed"] = True
+            verification["overall_status"] = (
+                "google_grounded_primary_source_backed"
+                if verification["primary_source_count"]
+                else "google_grounded_reputable_reporting"
+                if verification["reputable_source_count"]
+                else "google_grounded_unverified_publishers"
+            )
             result = {
                 "answer": answer[:3500], "citations": citations,
                 "evidence": evidence, "verification": verification,

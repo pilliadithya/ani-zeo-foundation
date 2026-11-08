@@ -142,7 +142,7 @@ class AIRouter:
     def estimate_messages_tokens(cls, messages: list[dict]) -> int:
         return sum(cls.estimate_tokens(str(item.get('content') or '')) + 4 for item in messages)
 
-    def _estimate_cost_usd(self, provider_name: str, usage: dict, model: str | None = None) -> float | None:
+    def estimate_cost_usd(self, provider_name: str, usage: dict, model: str | None = None) -> float | None:
         """Estimate cost only when explicit per-model rates and actual token counts exist."""
         try:
             import json
@@ -368,7 +368,7 @@ class AIRouter:
                     'estimated_input_tokens': self.estimate_messages_tokens(messages),
                     'latency_ms': int(elapsed * 1000),
                     'finish_reason': result.get('finish_reason'),
-                    'estimated_cost_usd': self._estimate_cost_usd(name, usage, result.get('model')),
+                    'estimated_cost_usd': self.estimate_cost_usd(name, usage, result.get('model')),
                 })
                 log.info(
                     'AI usage provider=%s model=%s input_tokens=%s output_tokens=%s total_tokens=%s cached_input_tokens=%s thinking_tokens=%s estimated_input_tokens=%s latency_ms=%s finish_reason=%s',

@@ -542,12 +542,17 @@ async def chat_message(update: Update, context) -> None:
 
         await send_formatted_answer(message, answer)
         if live_result and live_result.get("citations"):
-            lines = ["Sources:"]
-            for source in live_result["citations"][:5]:
+            # Keep references available without turning the reply into a bibliography.
+            source_links = []
+            for source in live_result["citations"][:3]:
                 url = html.escape(source["url"], quote=True)
-                title = html.escape(source["title"])
-                lines.append(f'<a href="{url}">{title}</a>')
-            await message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                title = html.escape(source["title"][:65])
+                source_links.append(f'<a href="{url}">{title}</a>')
+            await message.reply_text(
+                "🔎 <b>Sources:</b> " + " · ".join(source_links),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
 
         # Refresh memory after the user has received the answer. Summarization is
         # best-effort: if it fails, the chat reply remains successful.

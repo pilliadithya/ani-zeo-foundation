@@ -98,13 +98,13 @@ def _date_keys(text: str) -> set[str]:
     }
     keys = set()
     for match in re.finditer(
-        r"\\b([A-Za-z]+)\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b",
+        r"\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b",
         text,
     ):
         month = month_names.get(match.group(1).lower())
         if month:
             keys.add(f"{match.group(3) or ''}-{month:02d}-{int(match.group(2)):02d}")
-    for match in re.finditer(r"\\b(\\d{4})-(\\d{2})-(\\d{2})\\b", text):
+    for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
         keys.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
     return keys
 
@@ -118,8 +118,8 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     )
     answer = str(answer or "")
     unsupported_chapters = sorted(
-        set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", answer, re.I))
-        - set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", source_text, re.I))
+        set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", answer, re.I))
+        - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
     verification = research_result.get("verification") or {}
@@ -128,14 +128,14 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         for item in evidence if isinstance(item, dict)
     )
     confirmation_claim = bool(re.search(
-        r"\\b(officially confirmed|official confirmation|officially announced|"
-        r"confirmed by the (?:studio|publisher|committee))\\b",
+        r"\b(officially confirmed|official confirmation|officially announced|"
+        r"confirmed by the (?:studio|publisher|committee))\b",
         answer,
         re.I,
     ))
     unsupported_confirmation = confirmation_claim and not has_primary
     conflicts = verification.get("conflicts") or []
-    answer_chapters = set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", answer, re.I))
+    answer_chapters = set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", answer, re.I))
     conflicted_chapters = sorted(
         answer_chapters.intersection(str(item.get("chapter")) for item in conflicts)
     )

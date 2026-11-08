@@ -479,7 +479,7 @@ class AnimeResearchService:
 
             language = (language or "english").lower()
             if language in {"tenglish", "telugu", "telugu_english"}:
-                opening = "Bro, anime side lo dorikina latest updates ఇవి 👀" if is_big_three else "Bro, ee update chudu 👀"
+                opening = "Bro, anime side lo dorikina latest updates ivi 👀" if is_big_three else "Bro, ee update chudu 👀"
                 caveat = "Source lo unna information varake cheptunna — confirm kaani details ni guess cheyyanu."
             elif language == "tanglish":
                 opening = "Hey, anime side-la latest-a kidaicha updates idhu 👀" if is_big_three else "Hey, indha update paaru 👀"

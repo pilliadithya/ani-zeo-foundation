@@ -478,8 +478,8 @@ def test_cost_estimate_requires_explicit_rates_and_actual_usage():
     router = AIRouter(settings)
     cost = router.estimate_cost_usd("gemini", {"input_tokens": 1000, "output_tokens": 500})
     assert cost == 0.0003
-    assert router._estimate_cost_usd("gemini", {"input_tokens": None, "output_tokens": 500}) is None
-    assert router._estimate_cost_usd("groq", {"input_tokens": 1000, "output_tokens": 500}) is None
+    assert router.estimate_cost_usd("gemini", {"input_tokens": None, "output_tokens": 500}) is None
+    assert router.estimate_cost_usd("groq", {"input_tokens": 1000, "output_tokens": 500}) is None
 
 
 def test_research_context_uses_evidence_only_writer_instructions():

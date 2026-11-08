@@ -70,6 +70,9 @@ def _chapter_date_claims(items: list[dict]) -> dict:
             if index + 1 < len(chapter_matches):
                 end = min(end, chapter_matches[index + 1].start())
             nearby = text[chapter_match.end():end]
+            sentence_end = re.search(r"[.!?](?:\\s|$)", nearby)
+            if sentence_end:
+                nearby = nearby[:sentence_end.end()]
             dates = {match.group(0) for match in month_date.finditer(nearby)}
             dates.update(match.group(0) for match in iso_date.finditer(nearby))
             if dates:
@@ -95,7 +98,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         word.casefold() for word in re.findall(r"[a-z0-9]+", query)
         if len(word) > 2 and word.casefold() not in {
             "latest", "update", "updates", "news", "anime", "manga",
-            "confirmed", "today", "recent", "about", "what", "tell", "big", "three",
+            "confirmed", "today", "recent", "about", "what", "tell", "big", "three", "give", "get",
         }
     }
 

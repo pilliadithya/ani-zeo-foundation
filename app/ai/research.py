@@ -49,7 +49,7 @@ class AnimeResearchService:
         "charcter": "character", "episdoe": "episode",
         "eposide": "episode", "stduio": "studio",
     }
-    INTENT_ENTITIES = (
+    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")\n    INTENT_ENTITIES = (
         "one piece", "naruto", "boruto", "bleach", "dragon ball",
         "demon slayer", "jujutsu kaisen", "attack on titan",
         "my hero academia", "frieren", "solo leveling", "death note",

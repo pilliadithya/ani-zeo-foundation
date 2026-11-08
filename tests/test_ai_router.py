@@ -80,3 +80,44 @@ def test_router_includes_retrieved_data_as_untrusted_context():
     system = messages[0]["content"]
     assert "Title: Frieren" in system
     assert "untrusted reference only" in system
+
+
+@pytest.mark.asyncio
+async def test_live_search_requires_grounding_sources(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": "Unverified current claim"}]}}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(api_key="test-key")
+    assert await service.google_grounded_answer("Latest anime release announcements") is None
+
+
+@pytest.mark.asyncio
+async def test_live_search_failure_does_not_cache_unverified_answer(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": "Stale answer"}]}}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(api_key="test-key")
+    assert await service.google_grounded_answer("Latest anime news") is None
+    assert not any(key.startswith("live:") for key in service.cache)

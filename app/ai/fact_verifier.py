@@ -128,8 +128,9 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         for item in evidence if isinstance(item, dict)
     )
     confirmation_claim = bool(re.search(
-        r"\b(officially confirmed|official confirmation|officially announced|"
-        r"confirmed by the (?:studio|publisher|committee))\b",
+        r"\b(official(?:ly)?\s+(?:sources?|confirmed|confirmation|announced)|"
+        r"has been confirmed|have been confirmed|confirmed by (?:the )?"
+        r"(?:studio|publisher|committee)|it is confirmed)\b",
         answer,
         re.I,
     ))

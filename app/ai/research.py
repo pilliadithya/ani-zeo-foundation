@@ -377,7 +377,25 @@ class AnimeResearchService:
             if not citations or not self._grounding_covers_answer(answer, supports):
                 log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            result = {"answer":answer[:3500],"citations":citations,"provider":"gemini-google-search","usage":usage}
+            evidence = [{
+                "title": "Google Search grounded synthesis",
+                "url": citations[0]["url"],
+                "domain": urlparse(citations[0]["url"]).hostname or "Google Search",
+                "published": "",
+                "snippet": answer[:1_600],
+                "verification_status": "grounding_support_passed",
+            }]
+            verification = {
+                "overall_status": "google_grounding_claim_support_passed",
+                "primary_source_count": 0,
+                "reputable_source_count": 0,
+                "independent_publishers": len(citations),
+            }
+            result = {
+                "answer": answer[:3500], "citations": citations,
+                "evidence": evidence, "verification": verification,
+                "provider": "gemini-google-search", "usage": usage,
+            }
             self._store(cache_key, result, ttl=300)
             return result
         except httpx.HTTPStatusError as exc:

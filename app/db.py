@@ -108,6 +108,28 @@ class Database:
             user_id, language,
         )
 
+    async def log_ai_usage(self, user_id: int, provider: str, usage: dict, latency_ms: int | None = None):
+        """Persist token telemetry only; never store prompts, answers, or credentials."""
+        usage = usage if isinstance(usage, dict) else {}
+        await self._pool().execute(
+            """insert into public.ai_usage_events
+                (telegram_user_id, provider, model, input_tokens, output_tokens,
+                 total_tokens, cached_input_tokens, thinking_tokens,
+                 estimated_input_tokens, latency_ms, finish_reason)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
+            user_id,
+            str(provider or "unknown")[:80],
+            str(usage.get("model") or "")[:160] or None,
+            usage.get("input_tokens"),
+            usage.get("output_tokens"),
+            usage.get("total_tokens"),
+            usage.get("cached_input_tokens"),
+            usage.get("thinking_tokens"),
+            usage.get("estimated_input_tokens"),
+            latency_ms,
+            str(usage.get("finish_reason") or "")[:80] or None,
+        )
+
     async def save_message(self, user_id: int, role: str, content: str):
         await self._pool().execute(
             "insert into public.conversation_messages (telegram_user_id, role, content) values ($1,$2,$3)",

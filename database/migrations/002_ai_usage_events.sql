@@ -13,6 +13,7 @@ create table if not exists public.ai_usage_events (
     estimated_input_tokens integer,
     latency_ms integer,
     finish_reason text,
+    estimated_cost_usd numeric(14,10),
     created_at timestamptz not null default now(),
     constraint ai_usage_nonnegative_tokens check (
         (input_tokens is null or input_tokens >= 0) and

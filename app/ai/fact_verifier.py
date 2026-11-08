@@ -135,10 +135,15 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     ))
     unsupported_confirmation = confirmation_claim and not has_primary
     conflicts = verification.get("conflicts") or []
-    answer_chapters = set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", answer, re.I))
-    conflicted_chapters = sorted(
-        answer_chapters.intersection(str(item.get("chapter")) for item in conflicts)
-    )
+    conflicted_chapters = []
+    for conflict in conflicts:
+        chapter = str(conflict.get("chapter") or "")
+        for match in re.finditer(r"\bchapter\s*#?\s*" + re.escape(chapter) + r"\b", answer, re.I):
+            nearby = answer[max(0, match.start() - 80):match.end() + 100]
+            if _date_keys(nearby):
+                conflicted_chapters.append(chapter)
+                break
+    conflicted_chapters = sorted(set(conflicted_chapters))
     return {
         "ok": not (unsupported_chapters or unsupported_dates or unsupported_confirmation or conflicted_chapters),
         "unsupported_chapters": unsupported_chapters,

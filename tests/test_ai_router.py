@@ -310,3 +310,82 @@ def test_tavily_relevance_guard_requires_big_three_franchise_match():
     query = "Latest Big 3 anime updates"
     assert AnimeResearchService._is_relevant_anime_result(relevant, query)
     assert not AnimeResearchService._is_relevant_anime_result(irrelevant, query)
+
+
+def test_big_three_filter_uses_headline_not_incidental_snippet_mentions():
+    relevant = {
+        "title": "One Piece anime announces new episode",
+        "content": "A verified One Piece update.",
+        "url": "https://example.com/one-piece-news",
+    }
+    irrelevant = {
+        "title": "DayOne | Gaming roundup",
+        "content": "A long roundup mentions One Piece once among many unrelated games.",
+        "url": "https://example.com/dayone",
+    }
+    assert AnimeResearchService._is_relevant_anime_result(
+        relevant, "Latest Big Three anime updates"
+    )
+    assert not AnimeResearchService._is_relevant_anime_result(
+        irrelevant, "Latest Big Three anime updates"
+    )
+
+
+def test_search_title_and_snippet_are_cleaned_for_telegram():
+    item = {
+        "title": " | DayOne",
+        "url": "https://www.example.com/news",
+    }
+    assert AnimeResearchService._clean_search_title(item) == "example.com"
+    assert AnimeResearchService._clean_search_snippet(
+        "5 days ago - " + ("Nintendo gaming roundup " * 30), limit=100
+    ).endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_tavily_big_three_results_are_grouped_and_compact(monkeypatch):
+    import app.ai.research as research_module
+
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "title": "One Piece anime official update",
+                        "url": "https://anime.example.com/one-piece",
+                        "content": "The official One Piece anime update includes a new broadcast announcement. " * 5,
+                        "published_date": "2026-11-07",
+                    },
+                    {
+                        "title": "DayOne gaming roundup",
+                        "url": "https://games.example.com/dayone",
+                        "content": "A gaming roundup with an incidental One Piece mention.",
+                        "published_date": "2026-11-07",
+                    },
+                    {
+                        "title": "Bleach anime news",
+                        "url": "https://anime.example.com/bleach",
+                        "content": "The Bleach anime news item reports a franchise update.",
+                        "published_date": "2026-11-06",
+                    },
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return FakeResponse()
+
+    monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
+    service = AnimeResearchService(tavily_api_key="test-key")
+    result = await service.tavily_search_answer(
+        "Give me latest Big Three anime updates"
+    )
+    assert result is not None
+    assert "**One Piece**" in result["answer"]
+    assert "**Bleach**" in result["answer"]
+    assert "DayOne" not in result["answer"]
+    assert "example.com" in result["answer"]
+    assert len(result["answer"]) < 1800

@@ -88,6 +88,66 @@ def _chapter_date_claims(items: list[dict]) -> dict:
     ]
 
 
+def _date_keys(text: str) -> set[str]:
+    month_names = {
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
+        "july": 7, "aug": 8, "august": 8, "sep": 9, "september": 9,
+        "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12,
+        "december": 12,
+    }
+    keys = set()
+    for match in re.finditer(
+        r"\\b([A-Za-z]+)\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b",
+        text,
+    ):
+        month = month_names.get(match.group(1).lower())
+        if month:
+            keys.add(f"{match.group(3) or ''}-{month:02d}-{int(match.group(2)):02d}")
+    for match in re.finditer(r"\\b(\\d{4})-(\\d{2})-(\\d{2})\\b", text):
+        keys.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+    return keys
+
+
+def validate_generated_answer(answer: str, research_result: dict) -> dict:
+    """Check dates, chapter identifiers and confirmation language against supplied evidence."""
+    evidence = research_result.get("evidence") or []
+    source_text = " ".join(
+        f"{item.get('title', '')} {item.get('snippet', '')}"
+        for item in evidence if isinstance(item, dict)
+    )
+    answer = str(answer or "")
+    unsupported_chapters = sorted(
+        set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", answer, re.I))
+        - set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", source_text, re.I))
+    )
+    unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    verification = research_result.get("verification") or {}
+    has_primary = any(
+        item.get("verification_status") in {"primary_source", "grounding_support_passed"}
+        for item in evidence if isinstance(item, dict)
+    )
+    confirmation_claim = bool(re.search(
+        r"\\b(officially confirmed|official confirmation|officially announced|"
+        r"confirmed by the (?:studio|publisher|committee))\\b",
+        answer,
+        re.I,
+    ))
+    unsupported_confirmation = confirmation_claim and not has_primary
+    conflicts = verification.get("conflicts") or []
+    answer_chapters = set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", answer, re.I))
+    conflicted_chapters = sorted(
+        answer_chapters.intersection(str(item.get("chapter")) for item in conflicts)
+    )
+    return {
+        "ok": not (unsupported_chapters or unsupported_dates or unsupported_confirmation or conflicted_chapters),
+        "unsupported_chapters": unsupported_chapters,
+        "unsupported_dates": unsupported_dates,
+        "unsupported_confirmation": unsupported_confirmation,
+        "conflicted_chapters": conflicted_chapters,
+    }
+
+
 def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
     """Validate evidence shape/relevance and assign conservative provenance labels."""
     accepted = []

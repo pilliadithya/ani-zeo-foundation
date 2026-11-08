@@ -94,7 +94,7 @@ class AnimeResearchService:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
             async with httpx.AsyncClient(timeout=18) as client:
-                res = await client.post(url, params={"key": self.api_key}, json={
+                res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
                     "generationConfig":{"temperature":0.2,"maxOutputTokens":650}})

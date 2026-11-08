@@ -61,7 +61,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         word.casefold() for word in re.findall(r"[a-z0-9]+", query)
         if len(word) > 2 and word.casefold() not in {
             "latest", "update", "updates", "news", "anime", "manga",
-            "confirmed", "today", "recent", "about", "what", "tell",
+            "confirmed", "today", "recent", "about", "what", "tell", "big", "three",
         }
     }
 

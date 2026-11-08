@@ -104,7 +104,7 @@ class AnimeResearchService:
             return False
         for match in re.finditer(r"[^.!?\n]+(?:[.!?]+|$)", answer):
             sentence = match.group(0).strip()
-            if len(sentence) < 24 or sentence.startswith(("#", "**")):
+            if len(sentence) < 15 or sentence.startswith(("#", "**")):
                 continue
             start, end = match.span()
             if not any(start < source_end and end > source_start for source_start, source_end in spans):

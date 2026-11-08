@@ -330,12 +330,26 @@ class AnimeResearchService:
             + lang + "\nQuestion: " + query[:900])
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
+            request_started = time.monotonic()
             async with httpx.AsyncClient(timeout=18) as client:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
                     "generationConfig":{"temperature":0.2,"maxOutputTokens":900}})
                 res.raise_for_status(); payload = res.json()
+            usage_meta = payload.get("usageMetadata") or {}
+            usage = {
+                "input_tokens": usage_meta.get("promptTokenCount"),
+                "output_tokens": usage_meta.get("candidatesTokenCount"),
+                "total_tokens": usage_meta.get("totalTokenCount"),
+                "cached_input_tokens": usage_meta.get("cachedContentTokenCount"),
+                "thinking_tokens": usage_meta.get("thoughtsTokenCount"),
+                "estimated_input_tokens": None,
+                "latency_ms": int((time.monotonic() - request_started) * 1000),
+                "model": self.model,
+                "finish_reason": None,
+                "estimated_cost_usd": None,
+            }
             candidate = (payload.get("candidates") or [])[0]
             parts = (candidate.get("content") or {}).get("parts") or []
             answer = "\n".join(p.get("text","") for p in parts if isinstance(p,dict)).strip()
@@ -361,7 +375,7 @@ class AnimeResearchService:
             if not citations or not self._grounding_covers_answer(answer, supports):
                 log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            result = {"answer":answer[:3500],"citations":citations,"provider":"gemini-google-search"}
+            result = {"answer":answer[:3500],"citations":citations,"provider":"gemini-google-search","usage":usage}
             self._store(cache_key, result, ttl=300)
             return result
         except httpx.HTTPStatusError as exc:

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 25
     ai_max_output_tokens: int = 700
     ai_cost_rates_json: str = "{}"
+    ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     tavily_api_key: str = ""

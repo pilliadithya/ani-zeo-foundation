@@ -63,9 +63,13 @@ def _chapter_date_claims(items: list[dict]) -> dict:
     claims = {}
     for item in items:
         text = f"{item.get('title', '')} {item.get('snippet', '')}"
-        for chapter_match in re.finditer(r"\bchapter\s*#?\s*(\d{1,4})\b", text, re.I):
+        chapter_matches = list(re.finditer(r"\bchapter\s*#?\s*(\d{1,4})\b", text, re.I))
+        for index, chapter_match in enumerate(chapter_matches):
             chapter = chapter_match.group(1)
-            nearby = text[chapter_match.end():chapter_match.end() + 110]
+            end = min(len(text), chapter_match.end() + 110)
+            if index + 1 < len(chapter_matches):
+                end = min(end, chapter_matches[index + 1].start())
+            nearby = text[chapter_match.end():end]
             dates = {match.group(0) for match in month_date.finditer(nearby)}
             dates.update(match.group(0) for match in iso_date.finditer(nearby))
             if dates:

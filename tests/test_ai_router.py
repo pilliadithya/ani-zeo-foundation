@@ -149,6 +149,8 @@ async def test_tavily_backup_returns_cited_search_results(monkeypatch):
     result = await service.tavily_search_answer("Latest anime announcements")
     assert result["provider"] == "tavily"
     assert result["citations"][0]["url"] == "https://example.com/news"
+    assert result["evidence"][0]["verification_status"] == "unverified_publisher"
+    assert result["verification"]["overall_status"] == "unverified_sources_only"
 
 
 @pytest.mark.asyncio

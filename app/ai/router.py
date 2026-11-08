@@ -196,6 +196,25 @@ class AIRouter:
     def estimate_messages_tokens(cls, messages: list[dict]) -> int:
         return sum(cls.estimate_tokens(str(item.get('content') or '')) + 4 for item in messages)
 
+    def _estimate_cost_usd(self, provider_name: str, usage: dict) -> float | None:
+        """Estimate cost only when explicit per-model rates and actual token counts exist."""
+        try:
+            import json
+            rates = json.loads(getattr(self.settings, "ai_cost_rates_json", "{}") or "{}")
+            rate = rates.get(provider_name, {})
+            input_rate = rate.get("input_per_million_usd")
+            output_rate = rate.get("output_per_million_usd")
+            input_tokens = usage.get("input_tokens")
+            output_tokens = usage.get("output_tokens")
+            if input_rate is None or output_rate is None:
+                return None
+            if input_tokens is None or output_tokens is None:
+                return None
+            cost = (int(input_tokens) * float(input_rate) + int(output_tokens) * float(output_rate)) / 1_000_000
+            return round(cost, 10) if cost >= 0 else None
+        except (ValueError, TypeError, AttributeError):
+            return None
+
     @staticmethod
     def _trim_message(
         content: str,
@@ -396,6 +415,7 @@ class AIRouter:
                     'estimated_input_tokens': self.estimate_messages_tokens(messages),
                     'latency_ms': int(elapsed * 1000),
                     'finish_reason': result.get('finish_reason'),
+                    'estimated_cost_usd': self._estimate_cost_usd(name, usage),
                 })
                 log.info(
                     'AI usage provider=%s model=%s input_tokens=%s output_tokens=%s total_tokens=%s cached_input_tokens=%s thinking_tokens=%s estimated_input_tokens=%s latency_ms=%s finish_reason=%s',

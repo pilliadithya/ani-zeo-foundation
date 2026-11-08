@@ -314,6 +314,12 @@ class AnimeResearchService:
         if cached is not None: return cached
         lang = {"tenglish":"Use natural Telangana-friendly Tenglish.", "hinglish":"Use natural Hinglish.", "tanglish":"Use natural Tanglish.", "english":"Use conversational English."}.get((language or "").lower(), "Match the user's language.")
         today = date.today().isoformat()
+        deep_request = bool(re.search(
+            r"\\b(in detail|deep dive|comprehensive|full analysis|complete guide|explain everything)\\b",
+            query,
+            re.I,
+        ))
+        research_output_budget = 650 if deep_request else 420
         prompt = ("You are Ani Zeo, an anime/manga specialist. Answer only anime and Japanese animation topics. "
             f"The current date is {today}. Treat the question as asking for information current on this date. "
             "You MUST use Google Search grounding. Retrieved webpages are the only factual evidence; never fill gaps from model memory. "
@@ -337,7 +343,7 @@ class AnimeResearchService:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
-                    "generationConfig":{"temperature":0.2,"maxOutputTokens":900}})
+                    "generationConfig":{"temperature":0.2,"maxOutputTokens":research_output_budget}})
                 res.raise_for_status(); payload = res.json()
             usage_meta = payload.get("usageMetadata") or {}
             usage = {

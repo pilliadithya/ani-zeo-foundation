@@ -121,6 +121,8 @@ class AIRouter:
             'aur batao', 'thoda detail', 'konjam detail',
         )
         list_terms = ('top 10', 'top 5', 'list of', 'watch order', 'recommendations')
+        if ('big three' in latest or 'big 3' in latest or 'big-three' in latest):
+            return 650
         if any(term in latest for term in deep_terms):
             return 900
         if any(term in latest for term in learn_more_terms):
@@ -393,9 +395,10 @@ class AIRouter:
                 await asyncio.sleep(delay)
         raise RuntimeError(f'{name} failed after retry attempts')
 
-    async def _generate_with_fallback(self, messages, compact_messages, output_tokens):
+    async def _generate_with_fallback(self, messages, compact_messages, output_tokens, provider_order=None):
         failures = []
-        for name in self.settings.provider_order:
+        selected_order = provider_order or self.settings.provider_order
+        for name in selected_order:
             provider = self.providers.get(name)
             if not provider or not provider.api_key:
                 continue
@@ -429,7 +432,8 @@ class AIRouter:
         language=None,
         memory_summary=None,
         research_context=None,
-        intent_context=None
+        intent_context=None,
+        provider_order=None
     ):
         messages = self._build_messages(
             history, language, memory_summary, compact=False,
@@ -449,7 +453,9 @@ class AIRouter:
         log.info('AI token budget estimated_input=%s output_budget=%s compact_input=%s',
                  self.estimate_messages_tokens(messages), output_budget,
                  self.estimate_messages_tokens(compact))
-        return await self._generate_with_fallback(messages, compact, output_budget)
+        if provider_order:
+            log.info('AI provider route override=%s', ','.join(provider_order))
+        return await self._generate_with_fallback(messages, compact, output_budget, provider_order=provider_order)
 
     async def summarize_memory(
         self,

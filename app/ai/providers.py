@@ -84,8 +84,10 @@ class Provider:
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 0.7,
         }
+        # Gemini 3 models reject legacy sampling parameters such as temperature.
+        if not (self.name == "gemini" and self.model.startswith("gemini-3")):
+            payload["temperature"] = 0.7
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(

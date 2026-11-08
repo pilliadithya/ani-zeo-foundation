@@ -8,6 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import httpx
 
+from app.ai.fact_verifier import verify_evidence
+
 log = logging.getLogger(__name__)
 
 ANILIST = "https://graphql.anilist.co"
@@ -450,28 +452,53 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
-            citations, findings = [], []
-            seen = set()
+            candidates = []
             rejected = 0
-            is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
-            grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
-            general_findings = []
             for item in raw_results:
                 url = item.get("url")
-                if not isinstance(url, str) or not url.startswith("https://") or url in seen:
+                if not isinstance(url, str) or not url.startswith("https://"):
+                    rejected += 1
                     continue
-                snippet = self._clean_search_snippet(item.get("content"), limit=300)
+                snippet = self._clean_search_snippet(item.get("content"), limit=700)
                 if not snippet or not self._is_relevant_anime_result(item, query):
                     rejected += 1
                     continue
-                seen.add(url)
-                title = self._clean_search_title(item)
-                published = str(item.get("published_date") or "").strip()
-                published = published[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", published) else ""
-                domain = (urlparse(url).hostname or "").removeprefix("www.")
-                citations.append({"title": title, "url": url})
-                entry = {"title": title, "snippet": snippet, "domain": domain, "published": published}
+                candidates.append({
+                    "title": self._clean_search_title(item),
+                    "url": url,
+                    "snippet": snippet,
+                    "published": item.get("published_date") or "",
+                    "score": item.get("score"),
+                })
+
+            verification = verify_evidence(candidates, query, limit=5)
+            evidence = verification["items"]
+            citations = [
+                {"title": item["title"], "url": item["url"],
+                 "verification_status": item["verification_status"]}
+                for item in evidence
+            ]
+            is_big_three = bool(re.search(r"\\bbig\\s*3\\b|big three", query, re.I))
+            grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
+            general_findings = []
+            for item in evidence:
+                franchise = self._big_three_franchise({
+                    "title": item["title"], "content": item["snippet"], "url": item["url"]
+                }) if is_big_three else None
+                entry = {
+                    "title": item["title"],
+                    "snippet": item["snippet"][:300],
+                    "domain": item["domain"],
+                    "published": item["published"][:10],
+                    "verification_status": item["verification_status"],
+                }
                 if is_big_three:
+                    if franchise:
+                        grouped[franchise].append(entry)
+                else:
+                    general_findings.append(entry)
+
+            if is_big_three:
                     franchise = self._big_three_franchise(item)
                     if franchise:
                         grouped[franchise].append(entry)
@@ -514,7 +541,14 @@ class AnimeResearchService:
                     conversational.append(f"{entry['snippet']}{published_text}")
             conversational.append(caveat)
             answer = "\n\n".join(conversational)
-            result = {"answer": answer[:2400], "citations": citations, "provider": "tavily"}
+            result = {
+                "answer": answer[:2400],
+                "citations": citations,
+                "evidence": evidence,
+                "verification": verification,
+                "provider": "tavily",
+                "usage": {},
+            }
             self._store(cache_key, result, ttl=300)
             log.info("Live search provider=tavily outcome=success sources=%s", len(citations))
             return result
@@ -528,6 +562,30 @@ class AnimeResearchService:
             log.warning("Live search provider=tavily outcome=failed category=%s", type(exc).__name__)
             self.tavily_disabled_until = time.monotonic() + 30
             return None
+
+    @staticmethod
+    def evidence_context(data):
+        """Compact, explicitly provenance-labelled evidence for the shared answer writer."""
+        if not data:
+            return ""
+        verification = data.get("verification") or {}
+        items = data.get("evidence") or []
+        lines = [
+            "CURRENT ANIME RESEARCH EVIDENCE",
+            "Overall evidence status: " + str(verification.get("overall_status") or "unknown"),
+            "Important: search excerpts are evidence leads, not proof of every implied claim.",
+            "Only describe something as officially confirmed when a primary source explicitly confirms it.",
+        ]
+        for index, item in enumerate(items[:5], 1):
+            lines.extend([
+                f"Evidence {index} [{item.get('verification_status', 'unverified')}]",
+                "Title: " + str(item.get("title") or "")[:180],
+                "Publisher: " + str(item.get("domain") or "")[:100],
+                "Published: " + str(item.get("published") or "not supplied"),
+                "Excerpt: " + str(item.get("snippet") or "")[:700],
+                "URL: " + str(item.get("url") or ""),
+            ])
+        return "\\n".join(lines)[:3_000]
 
     @staticmethod
     def context_for(data):

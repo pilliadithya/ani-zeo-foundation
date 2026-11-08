@@ -327,7 +327,7 @@ class AnimeResearchService:
             "Keep an ordinary update to 2-4 short sentences. Use a few bullets only when multiple franchises or genuinely separate updates need them. "
             "Use friendly, natural wording without forcing slang, 'bro', or emojis. Match the user's requested language and script. "
             "Put source links in the separate compact source footer, not as a newspaper-style bibliography in the answer. "
-            + lang + "\\nQuestion: " + query[:900])
+            + lang + "\nQuestion: " + query[:900])
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
             async with httpx.AsyncClient(timeout=18) as client:
@@ -439,7 +439,7 @@ class AnimeResearchService:
             citations, findings = [], []
             seen = set()
             rejected = 0
-            is_big_three = bool(re.search(r"\\bbig\\s*3\\b|big three", query, re.I))
+            is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
             grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
             general_findings = []
             for item in raw_results:
@@ -453,7 +453,7 @@ class AnimeResearchService:
                 seen.add(url)
                 title = self._clean_search_title(item)
                 published = str(item.get("published_date") or "").strip()
-                published = published[:10] if re.match(r"^\\d{4}-\\d{2}-\\d{2}", published) else ""
+                published = published[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", published) else ""
                 domain = (urlparse(url).hostname or "").removeprefix("www.")
                 citations.append({"title": title, "url": url})
                 entry = {"title": title, "snippet": snippet, "domain": domain, "published": published}
@@ -499,7 +499,7 @@ class AnimeResearchService:
                     published_text = f" (reported {entry['published']})" if entry["published"] else ""
                     conversational.append(f"{entry['snippet']}{published_text}")
             conversational.append(caveat)
-            answer = "\\n\\n".join(conversational)
+            answer = "\n\n".join(conversational)
             result = {"answer": answer[:2400], "citations": citations, "provider": "tavily"}
             self._store(cache_key, result, ttl=300)
             log.info("Live search provider=tavily outcome=success sources=%s", len(citations))

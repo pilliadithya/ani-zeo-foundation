@@ -132,6 +132,25 @@ class Database:
             str(usage.get("operation") or "chat_response")[:80],
         )
 
+    async def get_ai_usage_summary(self, days: int = 7):
+        """Aggregate usage without returning prompts, responses, or per-message content."""
+        safe_days = max(1, min(int(days), 90))
+        return await self._pool().fetch(
+            """select provider, operation, count(*)::bigint as requests,
+                      sum(input_tokens)::bigint as input_tokens,
+                      sum(output_tokens)::bigint as output_tokens,
+                      sum(total_tokens)::bigint as total_tokens,
+                      sum(cached_input_tokens)::bigint as cached_input_tokens,
+                      sum(thinking_tokens)::bigint as thinking_tokens,
+                      sum(estimated_cost_usd)::numeric as estimated_cost_usd,
+                      round(avg(latency_ms))::bigint as average_latency_ms
+               from public.ai_usage_events
+               where created_at >= now() - ($1::text || ' days')::interval
+               group by provider, operation
+               order by provider, operation""",
+            str(safe_days),
+        )
+
     async def save_message(self, user_id: int, role: str, content: str):
         await self._pool().execute(
             "insert into public.conversation_messages (telegram_user_id, role, content) values ($1,$2,$3)",

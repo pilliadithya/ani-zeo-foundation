@@ -142,12 +142,12 @@ class AIRouter:
     def estimate_messages_tokens(cls, messages: list[dict]) -> int:
         return sum(cls.estimate_tokens(str(item.get('content') or '')) + 4 for item in messages)
 
-    def _estimate_cost_usd(self, provider_name: str, usage: dict) -> float | None:
+    def _estimate_cost_usd(self, provider_name: str, usage: dict, model: str | None = None) -> float | None:
         """Estimate cost only when explicit per-model rates and actual token counts exist."""
         try:
             import json
             rates = json.loads(getattr(self.settings, "ai_cost_rates_json", "{}") or "{}")
-            rate = rates.get(provider_name, {})
+            rate = rates.get(model or "") or rates.get(provider_name, {})
             input_rate = rate.get("input_per_million_usd")
             output_rate = rate.get("output_per_million_usd")
             input_tokens = usage.get("input_tokens")
@@ -156,7 +156,9 @@ class AIRouter:
                 return None
             if input_tokens is None or output_tokens is None:
                 return None
-            cost = (int(input_tokens) * float(input_rate) + int(output_tokens) * float(output_rate)) / 1_000_000
+            billed_input = int(input_tokens) + int(usage.get("tool_tokens") or 0)
+            billed_output = int(output_tokens) + int(usage.get("thinking_tokens") or 0)
+            cost = (billed_input * float(input_rate) + billed_output * float(output_rate)) / 1_000_000
             return round(cost, 10) if cost >= 0 else None
         except (ValueError, TypeError, AttributeError):
             return None
@@ -366,7 +368,7 @@ class AIRouter:
                     'estimated_input_tokens': self.estimate_messages_tokens(messages),
                     'latency_ms': int(elapsed * 1000),
                     'finish_reason': result.get('finish_reason'),
-                    'estimated_cost_usd': self._estimate_cost_usd(name, usage),
+                    'estimated_cost_usd': self._estimate_cost_usd(name, usage, result.get('model')),
                 })
                 log.info(
                     'AI usage provider=%s model=%s input_tokens=%s output_tokens=%s total_tokens=%s cached_input_tokens=%s thinking_tokens=%s estimated_input_tokens=%s latency_ms=%s finish_reason=%s',

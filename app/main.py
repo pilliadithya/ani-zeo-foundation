@@ -437,8 +437,24 @@ async def chat_message(update: Update, context) -> None:
         return
 
     research = context.application.bot_data["research"]
-    recent_for_scope = await db.get_recent_messages(user.id, limit=4)
-    scope = research.scope_decision(message.text, recent_for_scope)
+    recent_for_scope = await db.get_recent_messages(user.id, limit=6)
+    intent_result = research.detect_intent(message.text, recent_for_scope)
+    scope = intent_result["scope"]
+    normalized_text = intent_result["normalized_text"]
+
+    if intent_result["was_corrected"]:
+        log.info(
+            "Intent typo correction applied (intent=%s)",
+            intent_result["intent"],
+        )
+
+    log.info(
+        "Intent detected (intent=%s, scope=%s, confidence=%.2f)",
+        intent_result["intent"],
+        scope,
+        intent_result["confidence"],
+    )
+
     if scope == "redirect":
         await message.reply_text(REDIRECT)
         return
@@ -466,10 +482,10 @@ async def chat_message(update: Update, context) -> None:
         history = await db.get_recent_messages(user.id, limit=8)
 
         live_result = None
-        is_live_request = research.needs_live_search(message.text)
+        is_live_request = intent_result["intent"] == "live_news" or research.needs_live_search(normalized_text)
         if is_live_request:
             live_result = await research.google_grounded_answer(
-                message.text, profile.get("preferred_language")
+                normalized_text, profile.get("preferred_language")
             )
             if live_result is None:
                 log.info("Live search primary unavailable; trying sequential backup provider=tavily")
@@ -487,7 +503,7 @@ async def chat_message(update: Update, context) -> None:
         metadata = None
         title = None
         if not live_result:
-            title = research.extract_title(message.text)
+            title = research.extract_title(normalized_text)
             if title:
                 metadata = await research.anime_metadata(title)
                 if metadata is None:
@@ -497,10 +513,24 @@ async def chat_message(update: Update, context) -> None:
         if live_result:
             answer, provider = live_result["answer"], live_result.get("provider", "gemini-google-search")
         else:
+            # Use the corrected text for understanding while preserving the exact
+            # original user message in the database and visible chat transcript.
+            ai_history = list(history)
+            for history_item in reversed(ai_history):
+                if history_item.get("role") == "user":
+                    history_item = dict(history_item)
+                    history_item["content"] = normalized_text
+                    ai_history[ai_history.index(history_item)] = history_item
+                    break
+
             answer, provider = await context.application.bot_data["ai"].reply(
-                history, profile.get("preferred_language"),
+                ai_history, profile.get("preferred_language"),
                 memory_summary=summary_text,
                 research_context=research.context_for(metadata),
+                intent_context=(
+                    f"Detected intent: {intent_result['intent']}. "
+                    f"Corrected query (only obvious typos): {normalized_text}"
+                ),
             )
 
         await db.save_message(user.id, "assistant", answer)

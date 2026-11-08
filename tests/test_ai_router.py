@@ -424,3 +424,10 @@ def test_intent_detector_keeps_unknown_names_unchanged():
 def test_intent_detector_recognizes_updates_without_news_keyword():
     detected = AnimeResearchService.detect_intent("One Piece updates")
     assert detected["intent"] == "live_news"
+
+
+def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_followup():
+    history = [{"role": "user", "content": "Tell me about One Piece anime"}]
+    detected = AnimeResearchService.detect_intent("What's the weather today?", history)
+    assert detected["scope"] == "redirect"
+    assert detected["intent"] == "unclear"

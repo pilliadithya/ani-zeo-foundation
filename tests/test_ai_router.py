@@ -3,6 +3,7 @@ from app.ai.router import AIRouter
 class FakeProvider:
     def __init__(self,name,key,response=None,error=None): self.name,self.api_key,self.response,self.error=name,key,response,error
     async def generate(self,messages,timeout,max_tokens):
+        self.last_max_tokens = max_tokens
         if self.error: raise self.error
         return self.response
 class FakeSettings:
@@ -12,8 +13,11 @@ class FakeSettings:
 @pytest.mark.asyncio
 async def test_fallback_provider_used():
     r=AIRouter(FakeSettings()); r.providers["gemini"]=FakeProvider("gemini","a",error=RuntimeError("offline")); r.providers["groq"]=FakeProvider("groq","b",response="Hello")
-    answer,name=await r.reply([{"role":"user","content":"hi"}],"english")
+    answer,name,usage=await r.reply([{"role":"user","content":"hi"}],"english")
     assert (answer,name)==("Hello","groq")
+    assert usage.get('input_tokens') is None
+    assert usage.get('output_tokens') is None
+    assert usage.get('estimated_input_tokens', 0) > 0
 @pytest.mark.asyncio
 async def test_missing_keys_fails_cleanly():
     s=FakeSettings(); s.provider_order=["nvidia","openrouter"]
@@ -79,7 +83,7 @@ def test_router_includes_retrieved_data_as_untrusted_context():
     )
     system = messages[0]["content"]
     assert "Title: Frieren" in system
-    assert "untrusted reference only" in system
+    assert "RESEARCH RESPONSE MODE" in system
 
 
 @pytest.mark.asyncio
@@ -146,6 +150,8 @@ async def test_tavily_backup_returns_cited_search_results(monkeypatch):
     result = await service.tavily_search_answer("Latest anime announcements")
     assert result["provider"] == "tavily"
     assert result["citations"][0]["url"] == "https://example.com/news"
+    assert result["evidence"][0]["verification_status"] == "unverified_publisher"
+    assert result["verification"]["overall_status"] == "unverified_sources_only"
 
 
 @pytest.mark.asyncio
@@ -432,3 +438,71 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
     detected = AnimeResearchService.detect_intent("What's the weather today?", history)
     assert detected["scope"] == "redirect"
     assert detected["intent"] == "unclear"
+
+
+def test_output_budget_scales_with_requested_depth():
+    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) == 180
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) == 420
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) == 900
+
+
+def test_token_estimate_is_nonzero_and_monotonic():
+    short = AIRouter.estimate_tokens("Naruto")
+    long = AIRouter.estimate_tokens("Naruto " * 100)
+    assert short >= 1
+    assert long > short
+
+
+@pytest.mark.asyncio
+async def test_reply_respects_configured_output_token_cap():
+    settings = FakeSettings()
+    settings.ai_max_output_tokens = 200
+    router = AIRouter(settings)
+    provider = FakeProvider("gemini", "a", response="Short answer")
+    router.providers["gemini"] = provider
+    answer, name, usage = await router.reply(
+        [{"role": "user", "content": "Explain the entire One Piece story in detail"}],
+        "english",
+    )
+    assert answer == "Short answer"
+    assert name == "gemini"
+    assert provider.last_max_tokens == 200
+    assert usage.get('input_tokens') is None
+    assert usage.get('output_tokens') is None
+    assert usage.get('estimated_input_tokens', 0) > 0
+
+
+def test_cost_estimate_requires_explicit_rates_and_actual_usage():
+    settings = FakeSettings()
+    settings.ai_cost_rates_json = '{"gemini":{"input_per_million_usd":0.1,"output_per_million_usd":0.4}}'
+    router = AIRouter(settings)
+    cost = router.estimate_cost_usd("gemini", {"input_tokens": 1000, "output_tokens": 500})
+    assert cost == 0.0003
+    assert router.estimate_cost_usd("gemini", {"input_tokens": None, "output_tokens": 500}) is None
+    assert router.estimate_cost_usd("groq", {"input_tokens": 1000, "output_tokens": 500}) is None
+
+
+def test_research_context_uses_evidence_only_writer_instructions():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Latest One Piece manga update?"}],
+        "tenglish",
+        research_context=(
+            "CURRENT ANIME RESEARCH EVIDENCE\\n"
+            "Overall evidence status: reported_by_reputable_sources\\n"
+            "Excerpt: A publisher reported a new announcement."
+        ),
+    )
+    system = messages[0]["content"]
+    assert "RESEARCH RESPONSE MODE" in system
+    assert "Never turn a search excerpt" in system
+    assert "CURRENT ANIME RESEARCH EVIDENCE" in system
+
+
+def test_compact_system_prompt_reduces_planned_input_tokens():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Hi"}],
+        "english",
+    )
+    assert router.estimate_messages_tokens(messages) < 1_300

@@ -8,6 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import httpx
 
+from app.ai.fact_verifier import verify_evidence
+
 log = logging.getLogger(__name__)
 
 ANILIST = "https://graphql.anilist.co"
@@ -312,6 +314,12 @@ class AnimeResearchService:
         if cached is not None: return cached
         lang = {"tenglish":"Use natural Telangana-friendly Tenglish.", "hinglish":"Use natural Hinglish.", "tanglish":"Use natural Tanglish.", "english":"Use conversational English."}.get((language or "").lower(), "Match the user's language.")
         today = date.today().isoformat()
+        deep_request = bool(re.search(
+            r"\b(in detail|deep dive|comprehensive|full analysis|complete guide|explain everything)\b",
+            query,
+            re.I,
+        ))
+        research_output_budget = 650 if deep_request else 420
         prompt = ("You are Ani Zeo, an anime/manga specialist. Answer only anime and Japanese animation topics. "
             f"The current date is {today}. Treat the question as asking for information current on this date. "
             "You MUST use Google Search grounding. Retrieved webpages are the only factual evidence; never fill gaps from model memory. "
@@ -330,12 +338,27 @@ class AnimeResearchService:
             + lang + "\nQuestion: " + query[:900])
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
+            request_started = time.monotonic()
             async with httpx.AsyncClient(timeout=18) as client:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
-                    "generationConfig":{"temperature":0.2,"maxOutputTokens":900}})
+                    "generationConfig":{"temperature":0.2,"maxOutputTokens":research_output_budget}})
                 res.raise_for_status(); payload = res.json()
+            usage_meta = payload.get("usageMetadata") or {}
+            usage = {
+                "input_tokens": usage_meta.get("promptTokenCount"),
+                "output_tokens": usage_meta.get("candidatesTokenCount"),
+                "total_tokens": usage_meta.get("totalTokenCount"),
+                "cached_input_tokens": usage_meta.get("cachedContentTokenCount"),
+                "thinking_tokens": usage_meta.get("thoughtsTokenCount"),
+                "tool_tokens": usage_meta.get("toolUsePromptTokenCount"),
+                "estimated_input_tokens": None,
+                "latency_ms": int((time.monotonic() - request_started) * 1000),
+                "model": self.model,
+                "finish_reason": None,
+                "estimated_cost_usd": None,
+            }
             candidate = (payload.get("candidates") or [])[0]
             parts = (candidate.get("content") or {}).get("parts") or []
             answer = "\n".join(p.get("text","") for p in parts if isinstance(p,dict)).strip()
@@ -344,24 +367,54 @@ class AnimeResearchService:
             chunks = metadata.get("groundingChunks") or []
             supports = metadata.get("groundingSupports") or []
             citations, seen, supported_indices = [], set(), set()
+            evidence_by_index = {}
             for support in supports:
+                segment = support.get("segment") or {}
+                start_index = segment.get("startIndex")
+                end_index = segment.get("endIndex")
+                claim_text = ""
+                if isinstance(start_index, int) and isinstance(end_index, int):
+                    claim_text = answer[max(0, start_index):max(0, end_index)].strip()
                 for index in support.get("groundingChunkIndices") or []:
                     if isinstance(index, int) and 0 <= index < len(chunks):
                         uri = ((chunks[index].get("web") or {}).get("uri"))
                         if isinstance(uri, str) and uri.startswith("https://"):
                             supported_indices.add(index)
+                            if claim_text:
+                                evidence_by_index.setdefault(index, []).append(claim_text)
+            candidate_evidence = []
             for index, chunk in enumerate(chunks):
                 web = chunk.get("web") or {}
                 uri = web.get("uri")
                 if index in supported_indices and isinstance(uri, str) and uri.startswith("https://") and uri not in seen:
                     seen.add(uri)
-                    citations.append({"title":str(web.get("title") or "Source")[:100],"url":uri})
+                    title = str(web.get("title") or "Source")[:100]
+                    citations.append({"title": title, "url": uri})
+                    candidate_evidence.append({
+                        "title": title,
+                        "url": uri,
+                        "snippet": " ".join(evidence_by_index.get(index) or []) or answer[:600],
+                    })
                 if len(citations) >= 5:
                     break
             if not citations or not self._grounding_covers_answer(answer, supports):
                 log.warning("Live search provider=gemini outcome=unverified reason=insufficient_claim_support chunks=%s supports=%s", len(chunks), len(supports))
                 return None
-            result = {"answer":answer[:3500],"citations":citations,"provider":"gemini-google-search"}
+            verification = verify_evidence(candidate_evidence, '', limit=5, require_anime_relevance=False)
+            evidence = verification["items"]
+            verification["grounding_claim_support_passed"] = True
+            verification["overall_status"] = (
+                "google_grounded_primary_source_backed"
+                if verification["primary_source_count"]
+                else "google_grounded_reputable_reporting"
+                if verification["reputable_source_count"]
+                else "google_grounded_unverified_publishers"
+            )
+            result = {
+                "answer": answer[:3500], "citations": citations,
+                "evidence": evidence, "verification": verification,
+                "provider": "gemini-google-search", "usage": usage,
+            }
             self._store(cache_key, result, ttl=300)
             return result
         except httpx.HTTPStatusError as exc:
@@ -436,35 +489,51 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
-            citations, findings = [], []
-            seen = set()
+            candidates = []
             rejected = 0
-            is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
-            grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
-            general_findings = []
             for item in raw_results:
                 url = item.get("url")
-                if not isinstance(url, str) or not url.startswith("https://") or url in seen:
+                if not isinstance(url, str) or not url.startswith("https://"):
+                    rejected += 1
                     continue
-                snippet = self._clean_search_snippet(item.get("content"), limit=300)
+                snippet = self._clean_search_snippet(item.get("content"), limit=700)
                 if not snippet or not self._is_relevant_anime_result(item, query):
                     rejected += 1
                     continue
-                seen.add(url)
-                title = self._clean_search_title(item)
-                published = str(item.get("published_date") or "").strip()
-                published = published[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", published) else ""
-                domain = (urlparse(url).hostname or "").removeprefix("www.")
-                citations.append({"title": title, "url": url})
-                entry = {"title": title, "snippet": snippet, "domain": domain, "published": published}
+                candidates.append({
+                    "title": self._clean_search_title(item),
+                    "url": url,
+                    "snippet": snippet,
+                    "published": item.get("published_date") or "",
+                    "score": item.get("score"),
+                })
+
+            verification = verify_evidence(candidates, query, limit=5)
+            evidence = verification["items"]
+            citations = [
+                {"title": item["title"], "url": item["url"],
+                 "verification_status": item["verification_status"]}
+                for item in evidence
+            ]
+            is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
+            grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
+            general_findings = []
+            for item in evidence:
+                franchise = self._big_three_franchise({
+                    "title": item["title"], "content": item["snippet"], "url": item["url"]
+                }) if is_big_three else None
+                entry = {
+                    "title": item["title"],
+                    "snippet": item["snippet"][:300],
+                    "domain": item["domain"],
+                    "published": item["published"][:10],
+                    "verification_status": item["verification_status"],
+                }
                 if is_big_three:
-                    franchise = self._big_three_franchise(item)
                     if franchise:
                         grouped[franchise].append(entry)
                 else:
                     general_findings.append(entry)
-                if len(citations) >= 5:
-                    break
 
             if is_big_three:
                 findings = [(name, entries[:2]) for name, entries in grouped.items() if entries]
@@ -500,7 +569,14 @@ class AnimeResearchService:
                     conversational.append(f"{entry['snippet']}{published_text}")
             conversational.append(caveat)
             answer = "\n\n".join(conversational)
-            result = {"answer": answer[:2400], "citations": citations, "provider": "tavily"}
+            result = {
+                "answer": answer[:2400],
+                "citations": citations,
+                "evidence": evidence,
+                "verification": verification,
+                "provider": "tavily",
+                "usage": {},
+            }
             self._store(cache_key, result, ttl=300)
             log.info("Live search provider=tavily outcome=success sources=%s", len(citations))
             return result
@@ -514,6 +590,39 @@ class AnimeResearchService:
             log.warning("Live search provider=tavily outcome=failed category=%s", type(exc).__name__)
             self.tavily_disabled_until = time.monotonic() + 30
             return None
+
+    @staticmethod
+    def evidence_context(data):
+        """Compact, explicitly provenance-labelled evidence for the shared answer writer."""
+        if not data:
+            return ""
+        verification = data.get("verification") or {}
+        items = data.get("evidence") or []
+        lines = [
+            "CURRENT ANIME RESEARCH EVIDENCE",
+            "Overall evidence status: " + str(verification.get("overall_status") or "unknown"),
+            "Important: search excerpts are evidence leads, not proof of every implied claim.",
+            "Only describe something as officially confirmed when a primary source explicitly confirms it.",
+        ]
+        conflicts = verification.get("conflicts") or []
+        for conflict in conflicts[:5]:
+            lines.append(
+                "VERIFICATION CONFLICT: Chapter "
+                + str(conflict.get("chapter"))
+                + " has conflicting nearby dates in the collected excerpts: "
+                + ", ".join(conflict.get("dates") or [])
+                + ". Do not state a single date as confirmed."
+            )
+        for index, item in enumerate(items[:5], 1):
+            lines.extend([
+                f"Evidence {index} [{item.get('verification_status', 'unverified')}]",
+                "Title: " + str(item.get("title") or "")[:180],
+                "Publisher: " + str(item.get("domain") or "")[:100],
+                "Published: " + str(item.get("published") or "not supplied"),
+                "Excerpt: " + str(item.get("snippet") or "")[:700],
+                "URL: " + str(item.get("url") or ""),
+            ])
+        return "\\n".join(lines)[:3_000]
 
     @staticmethod
     def context_for(data):

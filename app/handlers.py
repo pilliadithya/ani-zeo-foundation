@@ -1,5 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+from telegram.constants import ParseMode
+from html import escape
+from app.config import get_settings
 LANGUAGES = [("🇮🇳 Tenglish", "tenglish"), ("🇮🇳 Hinglish", "hinglish"), ("🇮🇳 Tanglish", "tanglish"), ("🇬🇧 English", "english")]
 TERMS_VERSION = "v1"
 
@@ -72,3 +75,52 @@ async def delete_data_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if q.data=="delete_data:no": await q.edit_message_text("Cancelled. Your stored data is unchanged."); return
     await context.application.bot_data["db"].delete_user_data(update.effective_user.id)
     await q.edit_message_text("Your stored Ani Zeo data has been deleted. Send /start if you'd like to begin again.")
+
+
+async def ai_usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show aggregate AI token usage to explicitly configured Telegram admins only."""
+    user = update.effective_user
+    message = update.effective_message
+    if not user or not message:
+        return
+
+    configured = get_settings().ai_usage_admin_ids
+    allowed_ids = {
+        int(value.strip())
+        for value in configured.split(",")
+        if value.strip().isdigit()
+    }
+    if not allowed_ids or user.id not in allowed_ids:
+        await message.reply_text("This admin-only usage report is not enabled for this account.")
+        return
+
+    db = context.application.bot_data["db"]
+    rows = await db.get_ai_usage_summary(days=7)
+    if not rows:
+        await message.reply_text("No AI usage records are available for the last 7 days yet.")
+        return
+
+    lines = ["<b>🤖 Ani Zeo · AI usage (last 7 days)</b>"]
+    for row in rows:
+        provider = escape(str(row["provider"] or "unknown"))
+        operation = escape(str(row["operation"] or "chat_response"))
+        requests = int(row["requests"] or 0)
+        input_tokens = row["input_tokens"]
+        output_tokens = row["output_tokens"]
+        total_tokens = row["total_tokens"]
+        cost = row["estimated_cost_usd"]
+        lines.append(
+            f"\n<b>{provider}</b> · {operation}"
+            f"\nRequests: {requests}"
+            f"\nInput: {input_tokens if input_tokens is not None else 'n/a'}"
+            f" · Output: {output_tokens if output_tokens is not None else 'n/a'}"
+            f" · Total: {total_tokens if total_tokens is not None else 'n/a'}"
+        )
+        if cost is not None:
+            lines.append("\nEstimated cost: " + format(float(cost), ".6f") + " USD")
+    lines.append("\n<i>Provider-reported token counts are authoritative. Estimates and unavailable fields are labelled separately.</i>")
+    await message.reply_text(
+        "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )

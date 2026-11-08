@@ -20,10 +20,12 @@ from telegram.ext import (
 )
 
 from app.ai.router import AIRouter
+from app.ai.fact_verifier import validate_generated_answer, verification_fallback
 from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
 from app.handlers import (
+    ai_usage_command,
     consent_callback,
     delete_data_callback,
     delete_data_command,
@@ -510,18 +512,54 @@ async def chat_message(update: Update, context) -> None:
                     await message.reply_text(REDIRECT)
                     return
 
+        usage = {}
+        research_usage = {}
         if live_result:
-            answer, provider = live_result["answer"], live_result.get("provider", "gemini-google-search")
-        else:
-            # Use the corrected text for understanding while preserving the exact
-            # original user message in the database and visible chat transcript.
+            # Every live-search provider now feeds the same conversation writer.
+            research_usage = dict(live_result.get("usage") or {})
+            if research_usage:
+                research_usage["operation"] = "grounded_research"
+                research_usage["estimated_cost_usd"] = (
+                    context.application.bot_data["ai"].estimate_cost_usd(
+                        "gemini", research_usage, research_usage.get("model")
+                    )
+                )
             ai_history = [dict(item) for item in history]
             for history_index in range(len(ai_history) - 1, -1, -1):
                 if ai_history[history_index].get("role") == "user":
                     ai_history[history_index]["content"] = normalized_text
                     break
-
-            answer, provider = await context.application.bot_data["ai"].reply(
+            answer, provider, usage = await context.application.bot_data["ai"].reply(
+                ai_history,
+                profile.get("preferred_language"),
+                memory_summary=summary_text,
+                research_context=research.evidence_context(live_result),
+                intent_context=(
+                    f"Detected intent: {intent_result['intent']}. "
+                    "This is a current anime research request. Answer from the supplied evidence only. "
+                    f"User query: {normalized_text}"
+                ),
+            )
+            fact_check = validate_generated_answer(answer, live_result)
+            if not fact_check["ok"]:
+                log.warning(
+                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s unsupported_confirmation=%s conflicted_chapters=%s)",
+                    fact_check["unsupported_chapters"],
+                    fact_check["unsupported_dates"],
+                    fact_check["unsupported_confirmation"],
+                    fact_check["conflicted_chapters"],
+                )
+                answer = verification_fallback(
+                    profile.get("preferred_language"), fact_check
+                )
+        else:
+            # Use corrected wording for understanding while preserving original transcript.
+            ai_history = [dict(item) for item in history]
+            for history_index in range(len(ai_history) - 1, -1, -1):
+                if ai_history[history_index].get("role") == "user":
+                    ai_history[history_index]["content"] = normalized_text
+                    break
+            answer, provider, usage = await context.application.bot_data["ai"].reply(
                 ai_history, profile.get("preferred_language"),
                 memory_summary=summary_text,
                 research_context=research.context_for(metadata),
@@ -531,8 +569,29 @@ async def chat_message(update: Update, context) -> None:
                 ),
             )
 
+        if usage:
+            usage = dict(usage)
+            usage["operation"] = "response_generation"
+
         await db.save_message(user.id, "assistant", answer)
-        log.info("AI reply completed via provider=%s", provider)
+        log.info(
+            "AI reply completed provider=%s input_tokens=%s output_tokens=%s total_tokens=%s",
+            provider,
+            usage.get("input_tokens"),
+            usage.get("output_tokens"),
+            usage.get("total_tokens"),
+        )
+
+        for usage_provider, usage_record in (
+            (live_result.get("provider") if live_result else None, research_usage),
+            (provider, usage),
+        ):
+            if usage_record:
+                try:
+                    await db.log_ai_usage(user.id, usage_provider or provider, usage_record, usage_record.get("latency_ms"))
+                except Exception as usage_exc:
+                    # Telemetry must never make a successful user-facing answer fail.
+                    log.warning("AI usage persistence skipped (%s)", type(usage_exc).__name__)
 
         if metadata and metadata.get("cover"):
             try:
@@ -614,6 +673,7 @@ async def lifespan(app: FastAPI):
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("aiusage", ai_usage_command))
     telegram_app.add_handler(
         CommandHandler("settings", settings_command)
     )

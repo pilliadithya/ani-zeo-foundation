@@ -108,6 +108,51 @@ class Database:
             user_id, language,
         )
 
+    async def log_ai_usage(self, user_id: int, provider: str, usage: dict, latency_ms: int | None = None):
+        """Persist token telemetry only; never store prompts, answers, or credentials."""
+        usage = usage if isinstance(usage, dict) else {}
+        await self._pool().execute(
+            """insert into public.ai_usage_events
+                (telegram_user_id, provider, model, input_tokens, output_tokens,
+                 total_tokens, cached_input_tokens, thinking_tokens, tool_tokens,
+                 estimated_input_tokens, latency_ms, finish_reason, estimated_cost_usd, operation)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+            user_id,
+            str(provider or "unknown")[:80],
+            str(usage.get("model") or "")[:160] or None,
+            usage.get("input_tokens"),
+            usage.get("output_tokens"),
+            usage.get("total_tokens"),
+            usage.get("cached_input_tokens"),
+            usage.get("thinking_tokens"),
+            usage.get("tool_tokens"),
+            usage.get("estimated_input_tokens"),
+            latency_ms,
+            str(usage.get("finish_reason") or "")[:80] or None,
+            usage.get("estimated_cost_usd"),
+            str(usage.get("operation") or "chat_response")[:80],
+        )
+
+    async def get_ai_usage_summary(self, days: int = 7):
+        """Aggregate usage without returning prompts, responses, or per-message content."""
+        safe_days = max(1, min(int(days), 90))
+        return await self._pool().fetch(
+            """select provider, operation, count(*)::bigint as requests,
+                      sum(input_tokens)::bigint as input_tokens,
+                      sum(output_tokens)::bigint as output_tokens,
+                      sum(total_tokens)::bigint as total_tokens,
+                      sum(cached_input_tokens)::bigint as cached_input_tokens,
+                      sum(thinking_tokens)::bigint as thinking_tokens,
+                      sum(tool_tokens)::bigint as tool_tokens,
+                      sum(estimated_cost_usd)::numeric as estimated_cost_usd,
+                      round(avg(latency_ms))::bigint as average_latency_ms
+               from public.ai_usage_events
+               where created_at >= now() - ($1::text || ' days')::interval
+               group by provider, operation
+               order by provider, operation""",
+            str(safe_days),
+        )
+
     async def save_message(self, user_id: int, role: str, content: str):
         await self._pool().execute(
             "insert into public.conversation_messages (telegram_user_id, role, content) values ($1,$2,$3)",

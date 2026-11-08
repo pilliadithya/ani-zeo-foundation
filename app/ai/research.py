@@ -48,22 +48,22 @@ class AnimeResearchService:
     @staticmethod
     def _big_three_franchise(item):
         """Classify a Big Three article using its headline/URL, not incidental body mentions."""
-        headline = re.sub(r"\\s+", " ", str(item.get("title") or "")).casefold()
+        headline = re.sub(r"\s+", " ", str(item.get("title") or "")).casefold()
         path = urlparse(str(item.get("url") or "")).path.casefold()
         text = f"{headline} {path}"
-        if re.search(r"one[\\s_-]*piece|eiichiro[\\s_-]*oda", text):
+        if re.search(r"one[\s_-]*piece|eiichiro[\s_-]*oda", text):
             return "One Piece"
-        if re.search(r"naruto|boruto|masashi[\\s_-]*kishimoto", text):
+        if re.search(r"naruto|boruto|masashi[\s_-]*kishimoto", text):
             return "Naruto / Boruto"
-        if re.search(r"bleach|tite[\\s_-]*kubo|ichigo[\\s_-]*kurosaki", text):
+        if re.search(r"bleach|tite[\s_-]*kubo|ichigo[\s_-]*kurosaki", text):
             return "Bleach"
         return None
 
     @staticmethod
     def _clean_search_title(item):
         """Remove aggregator prefixes and fall back to the source hostname."""
-        raw = re.sub(r"\\s+", " ", str(item.get("title") or "")).strip(" |—-:·")
-        raw = re.sub(r"^(?:news|search results?)\\s*[|:—-]\\s*", "", raw, flags=re.I)
+        raw = re.sub(r"\s+", " ", str(item.get("title") or "")).strip(" |—-:·")
+        raw = re.sub(r"^(?:news|search results?)\s*[|:—-]\s*", "", raw, flags=re.I)
         if not raw or raw.casefold() in {"dayone", "news", "search result"}:
             host = urlparse(str(item.get("url") or "")).hostname or "Source"
             raw = host.removeprefix("www.")
@@ -71,8 +71,8 @@ class AnimeResearchService:
 
     @staticmethod
     def _clean_search_snippet(value, limit=240):
-        text = re.sub(r"\\s+", " ", str(value or "")).strip()
-        text = re.sub(r"^(?:\\d+ days? ago\\s*[-–:]?\\s*)", "", text, flags=re.I)
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        text = re.sub(r"^(?:\d+ days? ago\s*[-–:]?\s*)", "", text, flags=re.I)
         text = text.strip(" |—-")
         if len(text) > limit:
             cut = text.rfind(" ", 0, limit)
@@ -82,12 +82,12 @@ class AnimeResearchService:
     @staticmethod
     def _is_relevant_anime_result(item, query):
         """Reject results without clear anime relevance; Big Three uses headline/URL classification."""
-        if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+        if re.search(r"\bbig\s*3\b|big three", query, re.I):
             return AnimeResearchService._big_three_franchise(item) is not None
         title = str(item.get("title") or "")
         content = str(item.get("content") or "")
         url = str(item.get("url") or "")
-        haystack = re.sub(r"\\s+", " ", f"{title} {content} {url}").casefold()
+        haystack = re.sub(r"\s+", " ", f"{title} {content} {url}").casefold()
         anime_terms = (
             "anime", "manga", "japanese animation", "shonen jump",
             "weekly shonen jump", "shueisha", "crunchyroll",
@@ -299,27 +299,27 @@ class AnimeResearchService:
                 seen.add(url)
                 title = self._clean_search_title(item)
                 published = str(item.get("published_date") or "").strip()
-                published = published[:10] if re.match(r"^\\d{4}-\\d{2}-\\d{2}", published) else ""
+                published = published[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", published) else ""
                 domain = (urlparse(url).hostname or "").removeprefix("www.")
                 source_date = f" · {published}" if published else ""
                 citations.append({"title": title, "url": url})
                 entry = (
-                    f"• **{title}**\\n"
-                    f"  {snippet}\\n"
+                    f"• **{title}**\n"
+                    f"  {snippet}\n"
                     f"  _Source: {domain}{source_date}_"
                 )
-                if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+                if re.search(r"\bbig\s*3\b|big three", query, re.I):
                     franchise = self._big_three_franchise(item)
                     grouped[franchise].append(entry)
                 else:
                     general_findings.append(entry)
                 if len(citations) >= 5:
                     break
-            if re.search(r"\\bbig\\s*3\\b|big three", query, re.I):
+            if re.search(r"\bbig\s*3\b|big three", query, re.I):
                 sections = []
                 for franchise, entries in grouped.items():
                     if entries:
-                        sections.append(f"**{franchise}**\\n" + "\\n".join(entries[:2]))
+                        sections.append(f"**{franchise}**\n" + "\n".join(entries[:2]))
                 findings = sections
             else:
                 findings = general_findings
@@ -330,12 +330,12 @@ class AnimeResearchService:
                 )
                 return None
             # Search snippets are leads, not proof of official confirmation.
-            heading = "BIG THREE · ANIME NEWS" if re.search(r"\\bbig\\s*3\\b|big three", query, re.I) else "ANIME NEWS"
+            heading = "BIG THREE · ANIME NEWS" if re.search(r"\bbig\s*3\b|big three", query, re.I) else "ANIME NEWS"
             answer = (
-                f"**{heading}**\\n"
-                f"_Checked {today}_\\n\\n"
-                + "\\n\\n".join(findings[:3])
-                + "\\n\\n_Note: These are source excerpts, not independently verified confirmations. "
+                f"**{heading}**\n"
+                f"_Checked {today}_\n\n"
+                + "\n\n".join(findings[:3])
+                + "\n\n_Note: These are source excerpts, not independently verified confirmations. "
                 "Open the linked sources to confirm announcement status, date and region._"
             )
             result = {"answer": answer[:3000], "citations": citations, "provider": "tavily"}

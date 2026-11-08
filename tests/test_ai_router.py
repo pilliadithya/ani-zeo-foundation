@@ -170,7 +170,7 @@ async def test_tavily_backup_rejects_results_without_https_sources(monkeypatch):
 
 def test_grounding_default_uses_supported_current_flash_model():
     service = AnimeResearchService(api_key="test-key")
-    assert service.model == "gemini-3.8-flash"
+    assert service.model == "gemini-2.5-flash"
 
 
 @pytest.mark.asyncio
@@ -182,9 +182,15 @@ async def test_google_grounding_extracts_citations(monkeypatch):
         def json(self):
             return {"candidates": [{
                 "content": {"parts": [{"text": "Upcoming anime release: Example title."}]},
-                "groundingMetadata": {"groundingChunks": [
-                    {"web": {"title": "Official source", "uri": "https://example.com/anime"}}
-                ]},
+                "groundingMetadata": {
+                    "groundingChunks": [
+                        {"web": {"title": "Official source", "uri": "https://example.com/anime"}}
+                    ],
+                    "groundingSupports": [{
+                        "segment": {"startIndex": 0, "endIndex": 43, "text": "Upcoming anime release: Example title."},
+                        "groundingChunkIndices": [0],
+                    }],
+                },
             }]}
 
     class FakeClient:
@@ -192,8 +198,8 @@ async def test_google_grounding_extracts_citations(monkeypatch):
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
         async def post(self, *args, **kwargs):
-            assert kwargs["json"]["tools"] == [{"google_search": {}}]
-            assert kwargs["json"]["generationConfig"]["temperature"] == 1.0
+            assert kwargs["json"]["tools"] == [{"google_search_retrieval": {}}]
+            assert kwargs["json"]["generationConfig"]["temperature"] == 0.2
             return FakeResponse()
 
     monkeypatch.setattr(research_module.httpx, "AsyncClient", FakeClient)
@@ -234,4 +240,26 @@ async def test_tavily_uses_source_snippets_not_unverified_answer(monkeypatch):
     assert "Official anime release update" in result["answer"]
     assert "2026-11-07" in result["answer"]
     assert "unverified summary" not in result["answer"]
-    assert "not a verified release calendar" in result["answer"]
+    assert "not independently verified facts or a release calendar" in result["answer"]
+
+
+def test_grounding_coverage_rejects_unsupported_claims():
+    answer = "One Piece has a new movie announced for December 2026. Naruto season 10 starts next month."
+    supports = [{
+        "segment": {"startIndex": 0, "endIndex": 59},
+        "groundingChunkIndices": [0],
+    }]
+    assert not AnimeResearchService._grounding_covers_answer(answer, supports)
+
+
+def test_grounding_coverage_accepts_supported_sentences():
+    answer = "The studio confirmed a new anime film for December 2026."
+    supports = [{
+        "segment": {"startIndex": 0, "endIndex": len(answer)},
+        "groundingChunkIndices": [0],
+    }]
+    assert AnimeResearchService._grounding_covers_answer(answer, supports)
+
+
+def test_grounding_coverage_rejects_missing_supports():
+    assert not AnimeResearchService._grounding_covers_answer("A long factual sentence with a claim.", [])

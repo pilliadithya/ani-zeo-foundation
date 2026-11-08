@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 25
     ai_max_output_tokens: int = 700
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-2.5-flash"
     tavily_api_key: str = ""
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"

@@ -82,7 +82,7 @@ def test_router_includes_retrieved_data_as_untrusted_context():
     )
     system = messages[0]["content"]
     assert "Title: Frieren" in system
-    assert "untrusted reference only" in system
+    assert "RESEARCH RESPONSE MODE" in system
 
 
 @pytest.mark.asyncio

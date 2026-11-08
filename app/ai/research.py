@@ -28,12 +28,12 @@ class AnimeResearchService:
         self.tavily_disabled_until = 0.0
 
     TYPO_PHRASES = (
-        (r"\\bone\\s+peice\\b", "One Piece"),
-        (r"\\bjujutsu\\s+kaisen\\b", "Jujutsu Kaisen"),
-        (r"\\bdemon\\s+slayer\\b", "Demon Slayer"),
-        (r"\\battack\\s+on\\s+titans?\\b", "Attack on Titan"),
-        (r"\\bmy\\s+hero\\s+academia\\b", "My Hero Academia"),
-        (r"\\bwatch\\s+oder\\b", "watch order"),
+        (r"\bone\s+peice\b", "One Piece"),
+        (r"\bjujutsu\s+kaisen\b", "Jujutsu Kaisen"),
+        (r"\bdemon\s+slayer\b", "Demon Slayer"),
+        (r"\battack\s+on\s+titans?\b", "Attack on Titan"),
+        (r"\bmy\s+hero\s+academia\b", "My Hero Academia"),
+        (r"\bwatch\s+oder\b", "watch order"),
     )
     TYPO_WORDS = {
         "anmie": "anime", "anim": "anime", "mangae": "manga",
@@ -59,7 +59,7 @@ class AnimeResearchService:
     @classmethod
     def correct_typos(cls, text):
         """Conservative anime-aware correction; never rewrite unknown names by guess."""
-        corrected = re.sub(r"\\s+", " ", (text or "").strip())
+        corrected = re.sub(r"\s+", " ", (text or "").strip())
         for pattern, replacement in cls.TYPO_PHRASES:
             corrected = re.sub(pattern, replacement, corrected, flags=re.I)
         words = re.findall(r"[A-Za-z]+", corrected)
@@ -67,7 +67,7 @@ class AnimeResearchService:
             lower = word.casefold()
             replacement = cls.TYPO_WORDS.get(lower)
             if replacement:
-                corrected = re.sub(rf"\\b{re.escape(word)}\\b", replacement, corrected, count=1, flags=re.I)
+                corrected = re.sub(rf"\b{re.escape(word)}\b", replacement, corrected, count=1, flags=re.I)
         return corrected
 
     @classmethod
@@ -82,7 +82,7 @@ class AnimeResearchService:
             if isinstance(x, dict)
         ).casefold()
         has_context = bool(
-            re.search(r"\\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\\b", previous)
+            re.search(r"\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\b", previous)
         )
         entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
         anime_scope = bool(ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected) or has_context)
@@ -93,13 +93,13 @@ class AnimeResearchService:
             intent = "off_topic"
         elif LIVE.search(corrected):
             intent = "live_news"
-        elif re.search(r"\\b(recommend|recommendations|suggest|similar to|like .+ anime|top \\d+ anime)\\b", lower):
+        elif re.search(r"\b(recommend|recommendations|suggest|similar to|like .+ anime|top \d+ anime)\b", lower):
             intent = "recommendation"
-        elif re.search(r"\\b(watch order|watching order|chronological order|release order|read order)\\b", lower):
+        elif re.search(r"\b(watch order|watching order|chronological order|release order|read order)\b", lower):
             intent = "watch_order"
-        elif re.search(r"\\b(who is|character|powers|ability|backstory|relationship)\\b", lower):
+        elif re.search(r"\b(who is|character|powers|ability|backstory|relationship)\b", lower):
             intent = "character_question"
-        elif re.search(r"\\b(studio|director|animator|animation staff|voice actor|seiyuu)\\b", lower):
+        elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):
             intent = "industry_question"
         elif has_context and len(corrected.split()) <= 10 and not anime_scope:
             intent = "follow_up"

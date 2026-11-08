@@ -537,7 +537,20 @@ async def chat_message(update: Update, context) -> None:
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
                     "This is a current anime research request. Answer from the supplied evidence only. "
-                    f"User query: {normalized_text}"
+                    + (
+                        "BIG THREE RESPONSE FORMAT: Cover One Piece, Naruto/Boruto, and Bleach separately. "
+                        "Give one short, useful, recent update for each franchise only when the supplied evidence supports it. "
+                        "If no reliable recent update is present for a franchise, say you could not verify a notable update for it; do not invent one. "
+                        "Talk like an anime fan chatting with a friend, not a news article. Use natural English or the user's selected language, "
+                        "a few fitting emojis, and concise explanations. Never pad with unrelated gaming, store, or general entertainment news. "
+                        if re.search(r"\\bbig\\s*3\\b|big three", normalized_text, re.I) else ""
+                    )
+                    + f"User query: {normalized_text}"
+                ),
+                provider_order=(
+                    ["groq", "openrouter", "gemini"]
+                    if live_result.get("provider") == "tavily"
+                    else None
                 ),
             )
             fact_check = validate_generated_answer(answer, live_result)

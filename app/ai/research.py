@@ -18,7 +18,7 @@ TITLE = re.compile(r"^(?:tell me about|info about|information about|details abou
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
 class AnimeResearchService:
-    def __init__(self, api_key="", model="gemini-3.8-flash", tavily_api_key=""):
+    def __init__(self, api_key="", model="gemini-2.5-flash", tavily_api_key=""):
         self.api_key, self.model = api_key, model
         self.tavily_api_key = tavily_api_key
         self.cache = {}

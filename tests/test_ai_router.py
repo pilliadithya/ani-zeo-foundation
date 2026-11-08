@@ -240,7 +240,7 @@ async def test_tavily_uses_source_snippets_not_unverified_answer(monkeypatch):
     assert "Official anime release update" in result["answer"]
     assert "2026-11-07" in result["answer"]
     assert "unverified summary" not in result["answer"]
-    assert "not a verified release calendar" in result["answer"]
+    assert "not independently verified facts or a release calendar" in result["answer"]
 
 
 def test_grounding_coverage_rejects_unsupported_claims():

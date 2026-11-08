@@ -499,15 +499,6 @@ class AnimeResearchService:
                     general_findings.append(entry)
 
             if is_big_three:
-                    franchise = self._big_three_franchise(item)
-                    if franchise:
-                        grouped[franchise].append(entry)
-                else:
-                    general_findings.append(entry)
-                if len(citations) >= 5:
-                    break
-
-            if is_big_three:
                 findings = [(name, entries[:2]) for name, entries in grouped.items() if entries]
             else:
                 findings = [("Update", general_findings[:3])] if general_findings else []

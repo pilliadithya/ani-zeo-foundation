@@ -254,7 +254,7 @@ def format_inline_markdown(text: str) -> str:
         code_placeholders.append(
             "<code>" + match.group(1) + "</code>"
         )
-        return f"ANI_ZEO_CODE_{len(code_placeholders) - 1}_END"
+        return f"ANIZEOCODETOKEN{len(code_placeholders) - 1}END"
 
     text = re.sub(r"`([^`]+)`", save_inline_code, text)
 
@@ -272,7 +272,7 @@ def format_inline_markdown(text: str) -> str:
     text = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"<i>\1</i>", text)
 
     for index, value in enumerate(code_placeholders):
-        text = text.replace(f"ANI_ZEO_CODE_{index}_END", value)
+        text = text.replace(f"ANIZEOCODETOKEN{index}END", value)
 
     return text
 

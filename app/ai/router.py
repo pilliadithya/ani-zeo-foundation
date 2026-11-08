@@ -390,15 +390,21 @@ class AIRouter:
                 raw_result = await provider.generate(messages, timeout, output_tokens)
                 result = self._normalize_provider_result(raw_result, name)
                 elapsed = time.monotonic() - started
-                usage = result['usage']
+                usage = dict(result['usage'])
+                usage.update({
+                    'model': result.get('model') or getattr(provider, 'model', None),
+                    'estimated_input_tokens': self.estimate_messages_tokens(messages),
+                    'latency_ms': int(elapsed * 1000),
+                    'finish_reason': result.get('finish_reason'),
+                })
                 log.info(
                     'AI usage provider=%s model=%s input_tokens=%s output_tokens=%s total_tokens=%s cached_input_tokens=%s thinking_tokens=%s estimated_input_tokens=%s latency_ms=%s finish_reason=%s',
-                    name, result.get('model') or getattr(provider, 'model', None) or 'unknown',
+                    name, usage.get('model') or 'unknown',
                     usage.get('input_tokens'), usage.get('output_tokens'), usage.get('total_tokens'),
                     usage.get('cached_input_tokens'), usage.get('thinking_tokens'),
-                    self.estimate_messages_tokens(messages), int(elapsed * 1000), result.get('finish_reason'),
+                    usage.get('estimated_input_tokens'), usage.get('latency_ms'), usage.get('finish_reason'),
                 )
-                return result
+                return {'text': result['text'], 'usage': usage}
             except Exception as exc:
                 elapsed = time.monotonic() - started
                 status = self._status_code(exc)

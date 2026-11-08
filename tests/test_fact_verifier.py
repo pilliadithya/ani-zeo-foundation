@@ -124,3 +124,40 @@ def test_generated_answer_can_mention_conflicted_chapter_without_repeating_date(
         research,
     )
     assert result["ok"] is True
+
+
+def test_generated_answer_rejects_official_sources_claim_without_primary_evidence():
+    research = {
+        "evidence": [{
+            "title": "One Piece news report",
+            "snippet": "A report discusses a possible chapter update.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {},
+    }
+    result = validate_generated_answer(
+        "According to official sources, it has been confirmed that Chapter 1197 releases soon.",
+        research,
+    )
+    assert result["unsupported_confirmation"] is True
+
+
+def test_generated_answer_rejects_date_for_conflicted_chapter():
+    research = {
+        "evidence": [{
+            "title": "One Piece Chapter 1197 release",
+            "snippet": "Chapter 1197 is listed in the report.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {
+            "conflicts": [{
+                "chapter": "1197",
+                "dates": ["November 1, 2026", "November 2, 2026"],
+            }],
+        },
+    }
+    result = validate_generated_answer(
+        "Chapter 1197 releases on November 1, 2026.",
+        research,
+    )
+    assert result["conflicted_chapters"] == ["1197"]

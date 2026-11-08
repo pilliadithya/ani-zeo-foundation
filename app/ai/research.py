@@ -68,7 +68,7 @@ class AnimeResearchService:
         for word in words:
             lower = word.casefold()
             replacement = cls.TYPO_WORDS.get(lower)
-            if not replacement and len(lower) >= 5 and lower not in {
+            if not replacement and lower not in cls.CORRECTION_VOCAB and len(lower) >= 5 and lower not in {
                 "about", "which", "there", "their", "today", "where",
                 "would", "could", "should", "please", "hello",
             }:

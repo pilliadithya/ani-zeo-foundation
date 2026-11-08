@@ -315,7 +315,7 @@ class AnimeResearchService:
         lang = {"tenglish":"Use natural Telangana-friendly Tenglish.", "hinglish":"Use natural Hinglish.", "tanglish":"Use natural Tanglish.", "english":"Use conversational English."}.get((language or "").lower(), "Match the user's language.")
         today = date.today().isoformat()
         deep_request = bool(re.search(
-            r"\\b(in detail|deep dive|comprehensive|full analysis|complete guide|explain everything)\\b",
+            r"\b(in detail|deep dive|comprehensive|full analysis|complete guide|explain everything)\b",
             query,
             re.I,
         ))

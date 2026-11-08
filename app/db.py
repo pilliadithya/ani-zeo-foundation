@@ -115,8 +115,8 @@ class Database:
             """insert into public.ai_usage_events
                 (telegram_user_id, provider, model, input_tokens, output_tokens,
                  total_tokens, cached_input_tokens, thinking_tokens,
-                 estimated_input_tokens, latency_ms, finish_reason, estimated_cost_usd)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)""",
+                 estimated_input_tokens, latency_ms, finish_reason, estimated_cost_usd, operation)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
             user_id,
             str(provider or "unknown")[:80],
             str(usage.get("model") or "")[:160] or None,
@@ -129,6 +129,7 @@ class Database:
             latency_ms,
             str(usage.get("finish_reason") or "")[:80] or None,
             usage.get("estimated_cost_usd"),
+            str(usage.get("operation") or "chat_response")[:80],
         )
 
     async def save_message(self, user_id: int, role: str, content: str):

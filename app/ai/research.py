@@ -478,7 +478,7 @@ class AnimeResearchService:
                  "verification_status": item["verification_status"]}
                 for item in evidence
             ]
-            is_big_three = bool(re.search(r"\\bbig\\s*3\\b|big three", query, re.I))
+            is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
             grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
             general_findings = []
             for item in evidence:

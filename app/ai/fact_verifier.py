@@ -70,7 +70,7 @@ def _chapter_date_claims(items: list[dict]) -> dict:
             if index + 1 < len(chapter_matches):
                 end = min(end, chapter_matches[index + 1].start())
             nearby = text[chapter_match.end():end]
-            sentence_end = re.search(r"[.!?](?:\\s|$)", nearby)
+            sentence_end = re.search(r"[.!?](?:\s|$)", nearby)
             if sentence_end:
                 nearby = nearby[:sentence_end.end()]
             dates = {match.group(0) for match in month_date.finditer(nearby)}

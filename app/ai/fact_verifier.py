@@ -51,6 +51,31 @@ def _matches_domain(host: str, domains: set[str]) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in domains)
 
 
+def _chapter_date_claims(items: list[dict]) -> dict:
+    """Find conflicting explicit dates attached to the same chapter number."""
+    month_date = re.compile(
+        r"\\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+        r"\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b",
+        re.I,
+    )
+    iso_date = re.compile(r"\\b\\d{4}-\\d{2}-\\d{2}\\b")
+    claims = {}
+    for item in items:
+        text = f"{item.get('title', '')} {item.get('snippet', '')}"
+        chapters = set(re.findall(r"\\bchapter\\s*#?\\s*(\\d{1,4})\\b", text, re.I))
+        dates = set(match.group(0) for match in month_date.finditer(text))
+        dates.update(match.group(0) for match in iso_date.finditer(text))
+        for chapter in chapters:
+            if dates:
+                claims.setdefault(chapter, set()).update(dates)
+    return {
+        "chapter": chapter,
+        "dates": sorted(dates),
+        "type": "conflicting_chapter_dates",
+    } for chapter, dates in claims.items() if len(dates) > 1
+
+
 def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
     """Validate evidence shape/relevance and assign conservative provenance labels."""
     accepted = []
@@ -113,6 +138,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         if len(accepted) >= limit:
             break
 
+    conflicts = _chapter_date_claims(accepted)
     primary_count = sum(x["verification_status"] == "primary_source" for x in accepted)
     reputable_count = sum(x["verification_status"] == "reputable_reporting" for x in accepted)
     if primary_count:
@@ -131,4 +157,5 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5) -> dict:
         "primary_source_count": primary_count,
         "reputable_source_count": reputable_count,
         "independent_publishers": len(seen_domains),
+        "conflicts": conflicts,
     }

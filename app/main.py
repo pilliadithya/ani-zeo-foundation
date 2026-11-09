@@ -670,7 +670,7 @@ async def chat_message(update: Update, context) -> None:
                         "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
                         "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
                         "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
-                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into the language explicitly requested by the user, preserving all meaning and using that language natural script. " if re.search(r"\\b(in|into|to)\\s+(telugu|english|hindi|tamil|kannada|malayalam)\\b", message.text, re.I) else ""),
+                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into the language explicitly requested by the user, preserving all meaning and using that language natural script. " if re.search(r"\b(in|into|to)\s+(telugu|english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else ""),
                     }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
                     + f"Corrected query (only obvious typos): {normalized_text}"
                 ),

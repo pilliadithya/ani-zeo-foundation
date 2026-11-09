@@ -151,7 +151,7 @@ class AIRouter:
         if re.search(anime_terms, latest):
             return 420
         if len(latest.split()) <= 5:
-            return 220
+            return 180
         return 360
 
     @staticmethod

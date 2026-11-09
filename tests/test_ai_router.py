@@ -561,3 +561,29 @@ async def test_slow_provider_times_out_and_falls_back_within_global_budget():
     assert answer == "Fast fallback"
     assert provider == "groq"
     assert elapsed < 0.4
+
+
+@pytest.mark.asyncio
+async def test_fast_provider_order_overrides_slow_environment_order():
+    class SlowGemini:
+        api_key = "g"
+        async def generate(self, messages, timeout, max_tokens):
+            raise asyncio.TimeoutError("slow Gemini")
+
+    class FastGroq:
+        api_key = "k"
+        async def generate(self, messages, timeout, max_tokens):
+            return {"text": "Fast Groq answer", "usage": {}}
+
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "nvidia", "groq", "openrouter"]
+    settings.ai_timeout_seconds = 5
+    settings.ai_total_timeout_seconds = 20
+    router = AIRouter(settings)
+    router.providers["gemini"] = SlowGemini()
+    router.providers["groq"] = FastGroq()
+
+    answer, provider, _ = await router.reply([{"role": "user", "content": "Hi"}])
+
+    assert answer == "Fast Groq answer"
+    assert provider == "groq"

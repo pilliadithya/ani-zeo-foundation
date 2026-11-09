@@ -103,3 +103,9 @@ async def test_search_fallback_returns_none_when_all_providers_fail():
     service.tavily_search_answer = AsyncMock(return_value=None)
 
     assert await service.search_fallback_answer("latest anime news") is None
+
+
+def test_historical_queries_do_not_get_recent_only_filter():
+    assert AnimeResearchService._is_historical_query("Naruto anime news from 2017")
+    assert AnimeResearchService._is_historical_query("history of One Piece manga announcements")
+    assert not AnimeResearchService._is_historical_query("latest anime news today")

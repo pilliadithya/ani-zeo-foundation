@@ -170,7 +170,7 @@ def build_providers(settings):
             settings.gemini_api_key,
             settings.gemini_model,
             "https://generativelanguage.googleapis.com/v1beta/openai",
-            tuple(settings.gemini_fallback_model_list),
+            tuple(getattr(settings, "gemini_fallback_model_list", [])),
         ),
         "groq": Provider(
             "groq",

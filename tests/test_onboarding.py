@@ -115,3 +115,11 @@ def test_greetings_are_varied_and_use_romanised_language(language):
 def test_greeting_supports_pirate_flag_but_never_requires_country_flags():
     greetings = [greeting_for_language("english") for _ in range(20)]
     assert all(not any(0x1F1E6 <= ord(char) <= 0x1F1FF for char in item) for item in greetings)
+
+
+def test_greeting_manager_handles_thanks_and_farewells_without_generic_invitation():
+    thanks = greeting_for_language("tenglish", user_text="thanks bro")
+    farewell = greeting_for_language("hinglish", user_text="bye")
+
+    assert thanks.startswith("Parledhu bro!")
+    assert farewell.startswith("Phir milte hain")

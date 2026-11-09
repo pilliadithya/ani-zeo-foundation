@@ -161,3 +161,23 @@ def test_generated_answer_rejects_date_for_conflicted_chapter():
         research,
     )
     assert result["conflicted_chapters"] == ["1197"]
+
+
+def test_official_anime_studio_domain_is_recognised_as_primary():
+    result = verify_evidence([{
+        "title": "MAPPA official studio news",
+        "url": "https://www.mappa.co.jp/news/",
+        "snippet": "MAPPA shared an official anime production announcement.",
+    }], "Anime studio news")
+    assert result["items"]
+    assert result["items"][0]["verification_status"] == "primary_source"
+
+
+def test_crunchyroll_is_treated_as_reputable_reporting_not_universal_primary_source():
+    result = verify_evidence([{
+        "title": "Anime industry news",
+        "url": "https://www.crunchyroll.com/news/latest",
+        "snippet": "A report about an anime industry announcement.",
+    }], "Latest anime news")
+    assert result["items"]
+    assert result["items"][0]["verification_status"] == "reputable_reporting"

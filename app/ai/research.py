@@ -137,6 +137,7 @@ class AnimeResearchService:
                     lower,
                 )
                 or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
+                or re.search(r"\b(in|into|to)\s+(telugu|english|hindi|tamil|kannada|malayalam)\b", lower)
             )
         )
         anime_scope = explicit_anime_scope or followup_candidate

@@ -80,12 +80,14 @@ class Database:
             safe_label,
         )
 
-    async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):
+    async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None = None):
+        """Create the profile from Telegram identity without choosing the user's preferred name."""
         await self._pool().execute(
-            """insert into public.user_profiles (telegram_user_id, username, display_name)
-            values ($1,$2,$3) on conflict (telegram_user_id) do update set
-            username=excluded.username, display_name=excluded.display_name, updated_at=now()""",
-            user_id, username, display_name,
+            """insert into public.user_profiles (telegram_user_id, username)
+            values ($1,$2) on conflict (telegram_user_id) do update set
+            username=coalesce(excluded.username, public.user_profiles.username),
+            updated_at=now()""",
+            user_id, username,
         )
 
     async def get_profile(self, user_id: int):
@@ -96,8 +98,23 @@ class Database:
 
     async def set_consent(self, user_id: int, version="v1"):
         await self._pool().execute(
-            "update public.user_profiles set consent_version=$2, consented_at=now(), updated_at=now() where telegram_user_id=$1",
+            "update public.user_profiles set consent_version=$2, consented_at=now(), onboarding_step='awaiting_name', updated_at=now() where telegram_user_id=$1",
             user_id, version,
+        )
+
+    async def set_display_name(self, user_id: int, display_name: str):
+        await self._pool().execute(
+            "update public.user_profiles set display_name=$2, updated_at=now() where telegram_user_id=$1",
+            user_id, display_name[:40],
+        )
+
+    async def set_onboarding_step(self, user_id: int, step: str):
+        allowed = {"welcome", "awaiting_name", "awaiting_language", "completed", "declined"}
+        if step not in allowed:
+            raise ValueError("Unsupported onboarding step")
+        await self._pool().execute(
+            "update public.user_profiles set onboarding_step=$2, updated_at=now() where telegram_user_id=$1",
+            user_id, step,
         )
 
     async def set_language(self, user_id: int, language: str):

@@ -7,7 +7,7 @@ Python Telegram AI companion using FastAPI webhooks, Supabase PostgreSQL, and co
 - FastAPI + Uvicorn
 - python-telegram-bot
 - Supabase PostgreSQL through asyncpg
-- Gemini, Groq, NVIDIA NIM and OpenRouter provider adapters
+- Gemini, Groq and NVIDIA NIM as the configured AI fallback providers (OpenRouter adapter remains optional and disabled by default)
 - pytest
 
 ## Setup

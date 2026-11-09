@@ -106,7 +106,14 @@ class AIRouter:
 
         aliases = {
             "telugu": "Tenglish (natural Telugu-English in Latin script)",
-            "tenglish": "STRICT Tenglish: Telangana Telugu + natural English code-switching, Latin/Roman letters ONLY; never Telugu Unicode script. Romanise spoken Telugu naturally and preserve English terms.",
+            "tenglish": (
+                "STRICT Tenglish for every answer: write spoken Telangana Telugu sentence structure in Latin/Roman letters, "
+                "naturally mixing useful English nouns/technical terms. Do NOT answer in English with a few Telugu words added. "
+                "Do NOT use Telugu Unicode script. Romanise Telugu words as people commonly type them. "
+                "Example style: 'One Piece lo Luffy tana crew tho Grand Line journey start chesthadu. Story lo adventure, "
+                "friendship, world-building chala strong ga untayi.' Keep names and technical terms in English. "
+                "Before sending, check that the answer sounds like spoken Telugu written in English letters."
+            ),
             "hinglish": "natural Hindi-English Hinglish in Latin script",
             "hindi": "natural Hindi-English Hinglish in Latin script",
             "tanglish": "natural spoken Tamil-English Tanglish in Latin script",
@@ -416,7 +423,12 @@ class AIRouter:
                     # completion budget is too small. Retry once with a larger cap
                     # if the shared request deadline still leaves room.
                     max_configured_tokens = max(
-                        300, int(getattr(self.settings, "ai_max_output_tokens", 1400))
+                        output_tokens + 1,
+                        int(getattr(
+                            self.settings,
+                            "ai_groq_retry_max_output_tokens",
+                            1800,
+                        )),
                     )
                     if (
                         name != "groq"
@@ -463,6 +475,19 @@ class AIRouter:
             except Exception as exc:
                 elapsed = time.monotonic() - started
                 status = self._status_code(exc)
+                if name == "groq" and isinstance(exc, httpx.HTTPStatusError):
+                    response = exc.response
+                    headers = response.headers
+                    log.warning(
+                        "Groq HTTP failure status=%s retry_after=%s remaining_requests=%s "
+                        "remaining_tokens=%s reset_requests=%s reset_tokens=%s",
+                        status,
+                        headers.get("retry-after"),
+                        headers.get("x-ratelimit-remaining-requests"),
+                        headers.get("x-ratelimit-remaining-tokens"),
+                        headers.get("x-ratelimit-reset-requests"),
+                        headers.get("x-ratelimit-reset-tokens"),
+                    )
                 log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, detail=%s, elapsed=%.2fs)',
                             name, attempt, type(exc).__name__, status, str(exc)[:180], elapsed)
                 if name == "groq" and status == 429:

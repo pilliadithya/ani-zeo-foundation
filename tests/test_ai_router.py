@@ -597,3 +597,48 @@ def test_short_anime_question_gets_complete_answer_token_budget():
 def test_output_budget_adapts_to_long_contextual_translation():
     history = [{'role': 'assistant', 'content': 'One Piece explanation. ' * 100}, {'role': 'user', 'content': 'Bro in Telugu'}]
     assert AIRouter._output_budget(history) > AIRouter._output_budget([{'role': 'user', 'content': 'One Piece'}])
+
+
+@pytest.mark.asyncio
+async def test_truncated_provider_response_is_rejected_and_falls_back():
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq"]
+    router = AIRouter(settings)
+    router.providers["gemini"] = FakeProvider(
+        "gemini", "a",
+        response={"text": "This is only a partial answer", "finish_reason": "MAX_TOKENS"},
+    )
+    router.providers["groq"] = FakeProvider(
+        "groq", "b",
+        response={"text": "This is the complete fallback answer", "finish_reason": "stop"},
+    )
+
+    answer, provider, usage = await router.reply(
+        [{"role": "user", "content": "Explain One Piece"}],
+        "english",
+    )
+
+    assert answer == "This is the complete fallback answer"
+    assert provider == "groq"
+    assert usage["finish_reason"] == "stop"
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    ["length", "MAX_TOKENS", "max_output_tokens", "token_limit"],
+)
+def test_truncated_provider_result_is_rejected(finish_reason):
+    with pytest.raises(RuntimeError, match="truncated response"):
+        AIRouter._normalize_provider_result(
+            {"text": "partial answer", "finish_reason": finish_reason},
+            "gemini",
+        )
+
+
+def test_normal_provider_stop_result_is_accepted():
+    result = AIRouter._normalize_provider_result(
+        {"text": "Complete answer", "finish_reason": "STOP"},
+        "gemini",
+    )
+    assert result["text"] == "Complete answer"
+    assert result["finish_reason"] == "STOP"

@@ -575,8 +575,9 @@ async def chat_message(update: Update, context) -> None:
                         "BIG THREE RESPONSE FORMAT: Cover One Piece, Naruto/Boruto, and Bleach separately. "
                         "Give one short, useful, recent update for each franchise only when the supplied evidence supports it. "
                         "If no reliable recent update is present for a franchise, say you could not verify a notable update for it; do not invent one. "
-                        "Talk like an anime fan chatting with a friend, not a news article. Use natural English or the user's selected language, "
-                        "a few fitting emojis, and concise explanations. Never pad with unrelated gaming, store, or general entertainment news. "
+                        "Write a polished, compact anime news report: use a clear headline, a short lead, and small sections only when the evidence supports them. "
+                        "State the date and release status only when verified. Separate official confirmation from reporting and rumours. "
+                        "Use natural English or the user's selected language and a few fitting emojis. Never pad with unrelated gaming, store, or general entertainment news. "
                         if re.search(r"\bbig\s*3\b|big three", normalized_text, re.I) else ""
                     )
                     + f"User query: {normalized_text}"
@@ -612,7 +613,15 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.context_for(metadata),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
-                    f"Corrected query (only obvious typos): {normalized_text}"
+                    + {
+                        "anime_question": "Use an anime profile layout: title, premise, format/status and useful details when supported. ",
+                        "character_question": "Use a character dossier: identity, role, abilities and story context, with spoiler care. ",
+                        "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
+                        "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
+                        "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
+                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. ",
+                    }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
+                    + f"Corrected query (only obvious typos): {normalized_text}"
                 ),
             )
 

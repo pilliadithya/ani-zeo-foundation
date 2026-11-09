@@ -81,7 +81,7 @@ async def test_start_shows_creator_credit_and_disclaimer_in_one_welcome_note():
     assert "Privacy" in welcome
     assert "🇮🇳" not in welcome and "🇬🇧" not in welcome
     assert message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "consent:yes"
-    assert db.ensure_calls == [(123, None, None)]
+    assert db.ensure_calls == []  # ID is persisted only after the user accepts the welcome notice.
 
 
 @pytest.mark.asyncio

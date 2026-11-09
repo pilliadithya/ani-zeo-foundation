@@ -288,6 +288,19 @@ def format_inline_markdown(text: str) -> str:
     return text
 
 
+def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
+    if not answer or re.search(r'[😀-🙏🌀-🫿]', answer):
+        return answer
+    cues = {'live_news': '📰', 'character_question': '👤', 'watch_order': '📺', 'recommendation': '✨', 'industry_question': '🎬', 'follow_up': '💬', 'anime_question': '🎌', 'greeting': '👋'}
+    emoji = cues.get(intent, '🎌')
+    lines = answer.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip():
+            lines[index] = f'{emoji} {line.lstrip()}'
+            return '\n'.join(lines)
+    return f'{emoji} {answer}'
+
+
 def markdown_to_telegram_html(text: str) -> str:
     """Render headings, lists, tables and inline Markdown as Telegram HTML."""
     lines = text.splitlines()
@@ -670,7 +683,7 @@ async def chat_message(update: Update, context) -> None:
                         "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
                         "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
                         "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
-                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into the language explicitly requested by the user, preserving all meaning and using that language natural script. " if re.search(r"\b(in|into|to)\s+(telugu|english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else ""),
+                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into natural Telugu script. This explicit request overrides the saved language preference. Preserve all important details; never show the generic anime-only redirect. " if re.search(r"\b(in|into|to)\s+telugu\b", message.text, re.I) else ("Translate the previous assistant answer into the explicitly requested language and script, preserving all important details. " if re.search(r"\b(in|into|to)\s+(english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else "")),
                     }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
                     + f"Corrected query (only obvious typos): {normalized_text}"
                 ),
@@ -706,6 +719,7 @@ async def chat_message(update: Update, context) -> None:
             except Exception as exc:
                 log.warning("Telegram anime cover send failed (%s)", type(exc).__name__)
 
+        answer = apply_emoji_style(answer, intent_result['intent'])
         await send_formatted_answer(message, answer)
         if live_result and live_result.get("citations"):
             # Keep references available without turning the reply into a bibliography.

@@ -57,7 +57,7 @@ async def test_groq_truncation_retries_once_with_larger_token_budget():
     }
 
     answer, provider, _ = await router.reply(
-        [{"role": "user", "content": "Explain One Piece in detail"}],
+        [{"role": "user", "content": "Tell me about One Piece"}],
         "english",
     )
 

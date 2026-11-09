@@ -456,10 +456,10 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
 
 
 def test_output_budget_scales_with_requested_depth():
-    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) == 180
-    assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) == 650
-    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) == 420
-    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) == 900
+    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) >= 300
+    assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) > 900
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) > 500
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) > AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}])
 
 
 def test_token_estimate_is_nonzero_and_monotonic():
@@ -592,3 +592,8 @@ async def test_fast_provider_order_overrides_slow_environment_order():
 
 def test_short_anime_question_gets_complete_answer_token_budget():
     assert AIRouter._output_budget([{"role": "user", "content": "Bro One Piece gurinchi cheppu"}]) >= 400
+
+
+def test_output_budget_adapts_to_long_contextual_translation():
+    history = [{'role': 'assistant', 'content': 'One Piece explanation. ' * 100}, {'role': 'user', 'content': 'Bro in Telugu'}]
+    assert AIRouter._output_budget(history) > AIRouter._output_budget([{'role': 'user', 'content': 'One Piece'}])

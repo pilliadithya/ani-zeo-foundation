@@ -189,6 +189,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if len(word) > 2 and word.casefold() not in {
             "latest", "update", "updates", "news", "anime", "manga",
             "confirmed", "today", "recent", "about", "what", "tell", "big", "three", "give", "get",
+            "history", "historical", "from", "year",
         }
     }
     if re.search(r"\bbig\s*3\b|big three", query, re.I):
@@ -209,7 +210,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("duplicate_url")
             continue
 
-        haystack = f"{title} {snippet} {url}".casefold()
+        haystack = f"{title} {snippet} {item.get('published') or item.get('published_date') or ''} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)
         query_relevant = not query_terms or any(term in haystack or term.rstrip('s') in haystack for term in query_terms)
         if (require_anime_relevance and not anime_relevant) or not query_relevant:

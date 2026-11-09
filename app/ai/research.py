@@ -446,10 +446,10 @@ class AnimeResearchService:
 
     @staticmethod
     def _is_historical_query(query):
-        if re.search(r"\\b(history|historical|years ago|previously|in the past|old news|back in)\\b", query, re.I):
+        if re.search(r"\b(history|historical|years ago|previously|in the past|old news|back in)\b", query, re.I):
             return True
         current_year = date.today().year
-        return any(int(year) < current_year for year in re.findall(r"\\b(19\\d{2}|20\\d{2})\\b", query))
+        return any(int(year) < current_year for year in re.findall(r"\b(19\d{2}|20\d{2})\b", query))
 
     @staticmethod
     def _normalise_decodo_results(payload):

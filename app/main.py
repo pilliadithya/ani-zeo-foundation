@@ -27,6 +27,7 @@ from app.db import Database
 from app.handlers import (
     ai_usage_command,
     handle_onboarding_name,
+    greeting_for_language,
     language_keyboard,
     consent_callback,
     delete_data_callback,
@@ -473,6 +474,25 @@ async def chat_message(update: Update, context) -> None:
 
     if scope == "redirect":
         await message.reply_text(REDIRECT)
+        return
+
+    if intent_result["intent"] == "greeting":
+        previous_greeting = next(
+            (
+                item.get("content")
+                for item in reversed(recent_for_scope)
+                if item.get("role") == "assistant"
+            ),
+            None,
+        )
+        greeting = greeting_for_language(
+            profile.get("preferred_language"),
+            profile.get("display_name"),
+            previous_greeting,
+        )
+        await db.save_message(user.id, "user", message.text)
+        await db.save_message(user.id, "assistant", greeting)
+        await message.reply_text(greeting)
         return
 
     await db.save_message(user.id, "user", message.text)

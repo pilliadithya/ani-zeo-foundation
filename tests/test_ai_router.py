@@ -604,6 +604,7 @@ async def test_truncated_provider_response_is_rejected_and_falls_back():
     settings = FakeSettings()
     settings.provider_order = ["gemini", "groq"]
     router = AIRouter(settings)
+    router.FAST_PROVIDER_ORDER = ("gemini", "groq")
     router.providers["gemini"] = FakeProvider(
         "gemini", "a",
         response={"text": "This is only a partial answer", "finish_reason": "MAX_TOKENS"},

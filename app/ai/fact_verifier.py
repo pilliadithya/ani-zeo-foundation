@@ -151,6 +151,36 @@ def _date_keys(text: str) -> set[str]:
     return keys
 
 
+def _invalid_date_claims(text: str) -> list[str]:
+    """Return explicitly written dates that are impossible on the calendar."""
+    invalid = []
+    month_names = {
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
+        "july": 7, "aug": 8, "august": 8, "sep": 9, "september": 9,
+        "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12,
+        "december": 12,
+    }
+    for match in re.finditer(
+        r"\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b",
+        text,
+    ):
+        month = month_names.get(match.group(1).lower())
+        if not month:
+            continue
+        year = int(match.group(3) or 2000)
+        try:
+            date(year, month, int(match.group(2)))
+        except ValueError:
+            invalid.append(match.group(0))
+    for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
+        try:
+            date(*map(int, match.groups()))
+        except ValueError:
+            invalid.append(match.group(0))
+    return sorted(set(invalid))
+
+
 def validate_generated_answer(answer: str, research_result: dict) -> dict:
     """Check dates, chapter identifiers and confirmation language against supplied evidence."""
     evidence = research_result.get("evidence") or []
@@ -164,6 +194,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(
         item.get("verification_status") in {"primary_source", "grounding_support_passed"}
@@ -188,9 +219,10 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or unsupported_confirmation or conflicted_chapters),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
+        "invalid_dates": invalid_dates,
         "unsupported_confirmation": unsupported_confirmation,
         "conflicted_chapters": conflicted_chapters,
     }

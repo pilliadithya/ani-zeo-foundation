@@ -147,3 +147,13 @@ async def test_search_fallback_times_out_slow_provider_and_continues():
 
     assert result == expected
     service.langsearch_search_answer.assert_awaited_once()
+
+
+def test_language_request_is_a_contextual_follow_up():
+    history = [
+        {"role": "user", "content": "Bro, One Piece gurinchi cheppu"},
+        {"role": "assistant", "content": "One Piece is a pirate adventure about Luffy."},
+    ]
+    result = AnimeResearchService.detect_intent("Bro in Telugu", history)
+    assert result["intent"] == "follow_up"
+    assert result["scope"] == "anime"

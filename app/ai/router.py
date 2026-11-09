@@ -465,6 +465,17 @@ class AIRouter:
                 status = self._status_code(exc)
                 log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, detail=%s, elapsed=%.2fs)',
                             name, attempt, type(exc).__name__, status, str(exc)[:180], elapsed)
+                if name == "groq" and status == 429:
+                    response = getattr(exc, "response", None)
+                    headers = getattr(response, "headers", {}) or {}
+                    log.warning(
+                        "Groq rate limit confirmed retry_after=%s remaining_requests=%s remaining_tokens=%s reset_requests=%s reset_tokens=%s",
+                        headers.get("retry-after"),
+                        headers.get("x-ratelimit-remaining-requests"),
+                        headers.get("x-ratelimit-remaining-tokens"),
+                        headers.get("x-ratelimit-reset-requests"),
+                        headers.get("x-ratelimit-reset-tokens"),
+                    )
                 if attempt >= self.MAX_ATTEMPTS or not self._is_retryable(exc):
                     raise
                 delay = self._retry_delay(exc, attempt)

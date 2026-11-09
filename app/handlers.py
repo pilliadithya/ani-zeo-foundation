@@ -2,26 +2,77 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from html import escape
+import random
 from app.config import get_settings
-LANGUAGES = [("🇮🇳 Tenglish", "tenglish"), ("🇮🇳 Hinglish", "hinglish"), ("🇮🇳 Tanglish", "tanglish"), ("🇬🇧 English", "english")]
+LANGUAGES = [("Tenglish", "tenglish"), ("Hinglish", "hinglish"), ("Tanglish", "tanglish"), ("English", "english")]
 TERMS_VERSION = "v1"
+
+
+def normalise_display_name(value: str) -> str | None:
+    """Validate a short user-chosen display name without restricting its script."""
+    cleaned = " ".join("".join(char for char in str(value) if char.isprintable()).split())
+    if not cleaned or len(cleaned) > 40:
+        return None
+    return cleaned
+
+
+async def handle_onboarding_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Consume a text message as the requested display name during onboarding."""
+    user = update.effective_user
+    message = update.effective_message
+    if not user or not message or not message.text:
+        return False
+    db = context.application.bot_data["db"]
+    profile = await db.get_profile(user.id) or {}
+    if profile.get("onboarding_step") != "awaiting_name":
+        return False
+    display_name = normalise_display_name(message.text)
+    if not display_name:
+        await message.reply_text("Please send a name between 1 and 40 characters. You can use the script you prefer.")
+        return True
+    await db.set_display_name(user.id, display_name)
+    await db.set_onboarding_step(user.id, "awaiting_language")
+    await message.reply_text(
+        f"Nice to meet you, {display_name}! ✨\\n\\nChoose the language you'd like Ani Zeo to use:",
+        reply_markup=language_keyboard(),
+    )
+    return True
 
 def language_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"lang:{code}")] for label, code in LANGUAGES])
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user; db = context.application.bot_data["db"]
-    await db.ensure_profile(user.id, user.username, user.full_name)
-    profile = await db.get_profile(user.id)
-    if profile and profile.get("consented_at"):
-        await update.effective_message.reply_text("Welcome back! I'm Ani Zeo 🎌 Your anime companion. Ask me anything about anime or describe what you're looking for.")
+    """Show the compact welcome/disclaimer and resume any interrupted onboarding."""
+    user = update.effective_user
+    if not user:
         return
-    keyboard = InlineKeyboardMarkup([
-      [InlineKeyboardButton("📜 Terms & Conditions", callback_data="legal:terms")],
-      [InlineKeyboardButton("🔒 Privacy Notice", callback_data="legal:privacy")],
-      [InlineKeyboardButton("🤖 AI Disclaimer", callback_data="legal:ai")],
-      [InlineKeyboardButton("✅ I agree & continue", callback_data="consent:yes"), InlineKeyboardButton("❌ Not now", callback_data="consent:no")]])
-    await update.effective_message.reply_text("Yo! I'm Ani Zeo 🎌 — your AI anime companion. Review the information below before continuing.", reply_markup=keyboard)
+    db = context.application.bot_data["db"]
+    await db.ensure_profile(user.id, user.username, None)
+    profile = await db.get_profile(user.id) or {}
+    step = profile.get("onboarding_step") or "welcome"
+    if profile.get("consented_at") and profile.get("preferred_language") and step == "completed":
+        name = profile.get("display_name") or user.first_name or "nakama"
+        await update.effective_message.reply_text(f"Welcome back, {name}! ✨ Ready for another anime adventure?")
+        return
+    if profile.get("consented_at") and step == "awaiting_name":
+        await update.effective_message.reply_text("Nice to have you here! 😄 What name should I call you?")
+        return
+    if profile.get("consented_at") and step == "awaiting_language":
+        await update.effective_message.reply_text("Choose the language you'd like Ani Zeo to use:", reply_markup=language_keyboard())
+        return
+    welcome = (
+        "✨ <b>Welcome to ANI ZEO!</b>\\n"
+        "<i>Your Anime Discovery Companion</i>\\n\\n"
+        "Hey, anime nakama! 👋 Discover anime and manga, explore characters and watch orders, and find useful anime updates with your companion.\\n\\n"
+        "💡 <b>Did you know?</b> Ani Zeo is an independent prototype created by <b>Anime Monarch</b> and is currently under development and testing.\\n\\n"
+        "⚠️ <b>AI notice:</b> AI-generated answers can be inaccurate or outdated. Check important announcements and release details against official sources.\\n\\n"
+        "🔒 <b>Privacy:</b> Telegram provides your account ID automatically. We ask only for the name you'd like us to use and your preferred language. Your profile and conversation messages may be stored to operate the service; messages sent to AI providers are processed to generate replies. Avoid sharing passwords or sensitive information. Use /privacy to learn about data deletion.\\n\\n"
+        "Ani Zeo is an independent project and is not affiliated with anime studios, publishers or streaming platforms.\\n\\n"
+        "Ready to begin?"
+    )
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✨ Continue", callback_data="consent:yes")], [InlineKeyboardButton("Not now", callback_data="consent:no")]])
+    await update.effective_message.reply_text(welcome, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
 
 async def legal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q=update.callback_query; await q.answer()
@@ -32,20 +83,38 @@ async def legal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     title,body=docs[q.data]; await q.message.reply_text(f"{title}\n\n{body}")
 
 async def consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q=update.callback_query; await q.answer(); db=context.application.bot_data["db"]
-    if q.data=="consent:no":
-        await q.edit_message_text("No problem. I won't continue onboarding. Use /start if you want to review it later."); return
+    q = update.callback_query
+    await q.answer()
+    db = context.application.bot_data["db"]
+    if q.data == "consent:no":
+        await db.set_onboarding_step(update.effective_user.id, "declined")
+        await q.edit_message_text("No problem. Ani Zeo won't continue onboarding. You can send /start whenever you'd like to review the welcome note again.")
+        return
     await db.set_consent(update.effective_user.id, TERMS_VERSION)
-    await q.edit_message_text("Thanks! Choose your preferred language next.")
-    await q.message.reply_text("Choose a language:", reply_markup=language_keyboard())
+    await db.set_onboarding_step(update.effective_user.id, "awaiting_name")
+    await q.edit_message_text("Adventure accepted! ✨\\n\\nWhat name should I call you?")
+
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q=update.callback_query; await q.answer(); language=q.data.split(":",1)[1]
-    if language not in {v for _,v in LANGUAGES}:
-        await q.message.reply_text("That language choice isn't available."); return
-    await context.application.bot_data["db"].set_language(update.effective_user.id, language)
+    q = update.callback_query
+    await q.answer()
+    language = q.data.split(":", 1)[1]
+    if language not in {value for _, value in LANGUAGES}:
+        await q.message.reply_text("That language choice isn't available.")
+        return
+    db = context.application.bot_data["db"]
+    await db.set_language(update.effective_user.id, language)
+    await db.set_onboarding_step(update.effective_user.id, "completed")
+    greetings = {
+        "english": ["Heyyy! 👋 Your anime adventure starts now. What shall we explore?", "Welcome aboard, nakama! ✨ Ready to discover something amazing?", "A new chapter begins! 📖 What anime are we diving into today?"],
+        "tenglish": ["Hey bro! 😎 Eeroju ye anime gurinchi explore cheddham?", "Mana anime adventure start ayyindi! ⚔️ Em discover cheddham?", "Welcome, nakama! ✨ Nee next favourite anime ni kanipedadham!"],
+        "hinglish": ["Yo bro! 😎 Aaj kis anime ki duniya explore karein?", "Nayi anime adventure shuru! ⚔️ Kya discover karna hai?", "Welcome, nakama! ✨ Tumhara next favourite anime dhoondhein?"],
+        "tanglish": ["Vanakkam, nakama! ✨ Innaiku endha anime explore pannalaam?", "Pudhu anime adventure start pannalaama? ⚔️", "Hey bro! 😎 Un next favourite anime-a kandupidikkalaam!"],
+    }
+    greeting = random.choice(greetings[language])
     await q.edit_message_text(f"Language saved: {language.title()} ✅")
-    await q.message.reply_text("Nice! 🎌 Tell me your favourite anime or genres whenever you like, or start chatting now.\n\nTry: Recommend anime like Dr. Stone with science and kingdom building.")
+    await q.message.reply_text(greeting)
+
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile=await context.application.bot_data["db"].get_profile(update.effective_user.id)

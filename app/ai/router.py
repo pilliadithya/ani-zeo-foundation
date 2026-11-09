@@ -141,7 +141,7 @@ class AIRouter:
             for item in (history or [])[-5:]
             if isinstance(item, dict)
         ).casefold()
-        allowance = 520
+        allowance = 850
         if re.search(r"\b(why|how|analysis|compare|difference|explain|break down)\b", latest):
             allowance += 220
         if re.search(r"\b(detail|detailed|deep dive|comprehensive|complete guide|step by step|in depth|full explanation)\b", latest):
@@ -409,7 +409,40 @@ class AIRouter:
                     provider.generate(messages, timeout, output_tokens),
                     timeout=timeout,
                 )
-                result = self._normalize_provider_result(raw_result, name)
+                try:
+                    result = self._normalize_provider_result(raw_result, name)
+                except RuntimeError as truncation_error:
+                    # Groq can finish with finish_reason=length when the requested
+                    # completion budget is too small. Retry once with a larger cap
+                    # if the shared request deadline still leaves room.
+                    max_configured_tokens = max(
+                        300, int(getattr(self.settings, "ai_max_output_tokens", 1400))
+                    )
+                    if (
+                        name != "groq"
+                        or "truncated response" not in str(truncation_error).casefold()
+                        or output_tokens >= max_configured_tokens
+                    ):
+                        raise
+                    retry_tokens = min(
+                        max(output_tokens + 400, output_tokens * 2),
+                        max_configured_tokens,
+                    )
+                    retry_timeout = timeout
+                    if deadline is not None:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.75:
+                            raise
+                        retry_timeout = min(retry_timeout, remaining)
+                    log.warning(
+                        "Retrying truncated Groq response with larger output budget old_tokens=%s new_tokens=%s",
+                        output_tokens, retry_tokens,
+                    )
+                    retry_raw = await asyncio.wait_for(
+                        provider.generate(messages, retry_timeout, retry_tokens),
+                        timeout=retry_timeout,
+                    )
+                    result = self._normalize_provider_result(retry_raw, name)
                 elapsed = time.monotonic() - started
                 usage = dict(result['usage'])
                 usage.update({

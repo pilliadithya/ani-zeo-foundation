@@ -74,8 +74,8 @@ class AIRouter:
     SUMMARY_MAX_CHARS = 1_200
 
     # Provider-specific timeouts.
-    NVIDIA_TIMEOUT = 60.0
-    NVIDIA_RETRY_TIMEOUT = 35.0
+    NVIDIA_TIMEOUT = 15.0
+    NVIDIA_RETRY_TIMEOUT = 8.0
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 2
@@ -320,7 +320,7 @@ class AIRouter:
 
         return isinstance(
             exc,
-            (httpx.TimeoutException, httpx.NetworkError)
+            (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError)
         )
 
     @staticmethod
@@ -371,12 +371,20 @@ class AIRouter:
         return {'text': text.strip(), 'usage': usage if isinstance(usage, dict) else {},
                 'model': result.get('model'), 'finish_reason': result.get('finish_reason')}
 
-    async def _call_provider(self, name, provider, messages, output_tokens):
+    async def _call_provider(self, name, provider, messages, output_tokens, deadline=None):
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             timeout = self._provider_timeout(name, attempt)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.05:
+                    raise asyncio.TimeoutError("AI response time budget exhausted")
+                timeout = min(timeout, remaining)
             started = time.monotonic()
             try:
-                raw_result = await provider.generate(messages, timeout, output_tokens)
+                raw_result = await asyncio.wait_for(
+                    provider.generate(messages, timeout, output_tokens),
+                    timeout=timeout,
+                )
                 result = self._normalize_provider_result(raw_result, name)
                 elapsed = time.monotonic() - started
                 usage = dict(result['usage'])
@@ -406,6 +414,9 @@ class AIRouter:
                 if delay is None:
                     log.warning('Retrying provider %s skipped because Retry-After exceeds allowed wait', name)
                     raise
+                if deadline is not None and time.monotonic() + delay + 0.05 >= deadline:
+                    log.warning('Retrying provider %s skipped because the total response budget is nearly exhausted', name)
+                    raise
                 log.info('Retrying AI provider %s after %.1f seconds', name, delay)
                 await asyncio.sleep(delay)
         raise RuntimeError(f'{name} failed after retry attempts')
@@ -413,19 +424,32 @@ class AIRouter:
     async def _generate_with_fallback(self, messages, compact_messages, output_tokens, provider_order=None):
         failures = []
         selected_order = provider_order or self.settings.provider_order
+        total_timeout = max(5.0, float(getattr(self.settings, "ai_total_timeout_seconds", 35.0)))
+        deadline = time.monotonic() + total_timeout
         for name in selected_order:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.05:
+                log.warning("AI response budget exhausted before provider=%s", name)
+                break
             provider = self.providers.get(name)
             if not provider or not provider.api_key:
                 continue
             try:
-                result = await self._call_provider(name, provider, messages, output_tokens)
+                result = await self._call_provider(name, provider, messages, output_tokens, deadline=deadline)
                 return result['text'], name, result['usage']
             except Exception as exc:
                 status = self._status_code(exc)
                 if status == 413 and compact_messages:
                     try:
                         log.info('Retrying provider %s with compact conversation', name)
-                        raw = await provider.generate(compact_messages, self._provider_timeout(name, 2), min(output_tokens, 300))
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.05:
+                            raise asyncio.TimeoutError("AI response time budget exhausted")
+                        compact_timeout = min(self._provider_timeout(name, 2), remaining)
+                        raw = await asyncio.wait_for(
+                            provider.generate(compact_messages, compact_timeout, min(output_tokens, 300)),
+                            timeout=compact_timeout,
+                        )
                         result = self._normalize_provider_result(raw, name)
                         usage = result['usage']
                         log.info('AI usage provider=%s retry=compact input_tokens=%s output_tokens=%s estimated_input_tokens=%s',

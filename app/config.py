@@ -14,9 +14,10 @@ class Settings(BaseSettings):
     ai_cost_rates_json: str = "{}"
     ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    # Use Gemini 3.5 Flash as the initial test model; Render's GEMINI_MODEL overrides this default.
+    gemini_model: str = "gemini-3.5-flash"
     # Comma-separated Gemini model fallbacks, tried only after HTTP 429/503.
-    gemini_fallback_models: str = "gemini-3.5-flash-lite,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
+    gemini_fallback_models: str = "gemini-3.5-flash-lite,gemini-3.7-flash,gemini-3.6-flash,gemini-3.8-flash"
     tavily_api_key: str = ""
     decodo_api_key: str = ""
     langsearch_api_key: str = ""

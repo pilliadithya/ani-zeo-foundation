@@ -451,7 +451,7 @@ class AnimeResearchService:
         return [
             {
                 "title": item.get("title") or "",
-                "url": item.get("link") or item.get("original_link") or "",
+                "url": item.get("link") or item.get("original_link") or item.get("url") or "",
                 "content": item.get("description") or "",
                 "published_date": "",
                 "score": None,
@@ -690,7 +690,7 @@ class AnimeResearchService:
         if not self.tavily_api_key or time.monotonic() < self.tavily_disabled_until:
             log.info("Live search provider=tavily outcome=skipped reason=not_configured_or_cooldown")
             return None
-        cache_key = "tavily:" + re.sub(r"\s+", " ", query.casefold()).strip()
+        cache_key = "tavily:" + (language or "") + ":" + re.sub(r"\s+", " ", query.casefold()).strip()
         cached = self._cached(cache_key)
         if cached is not None:
             return cached

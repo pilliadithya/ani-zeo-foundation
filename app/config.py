@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     database_url: str
     ai_provider_order: str = "nvidia,groq,gemini,openrouter"
     ai_timeout_seconds: float = 12
-    ai_total_timeout_seconds: float = 20
-    ai_max_output_tokens: int = 700
+    ai_total_timeout_seconds: float = 28
+    ai_max_output_tokens: int = 1400
     ai_cost_rates_json: str = "{}"
     ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""

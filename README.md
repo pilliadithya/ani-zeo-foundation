@@ -13,7 +13,7 @@ Python Telegram AI companion using FastAPI webhooks, Supabase PostgreSQL, and co
 ## Setup
 1. Create a Python 3.11+ environment and run `pip install -r requirements.txt`.
 2. Copy `.env.example` to `.env`; fill in credentials locally. Never commit real secrets.
-3. Run `database/schema.sql` in the Supabase SQL Editor. For an existing deployment, run new files in `database/migrations/` in order (including `005_minimal_onboarding_step.sql` before deploying this onboarding change).
+3. Run `database/schema.sql` in the Supabase SQL Editor. For an existing deployment, run new files in `database/migrations/` in order (including `005_minimal_onboarding_step.sql` and `006_anime_research_archive.sql` before deploying onboarding and historical research).
 4. Run locally with `uvicorn app.main:app --reload`.
 5. Configure Telegram webhook to `https://YOUR_PUBLIC_HTTPS_HOST/telegram/webhook` and set the same `WEBHOOK_SECRET` in Render and the webhook's `secret_token` parameter.
 6. Render build command: `pip install -r requirements.txt`; start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.

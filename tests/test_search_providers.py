@@ -127,3 +127,23 @@ def test_archive_evidence_context_is_labelled_historical_and_shows_last_check():
     })
     assert "HISTORICAL ANIME RESEARCH ARCHIVE" in context
     assert "Last checked: 2026-11-09" in context
+
+
+@pytest.mark.asyncio
+async def test_search_fallback_times_out_slow_provider_and_continues():
+    import asyncio
+
+    service = AnimeResearchService(search_provider_order=["decodo", "langsearch"])
+    expected = {"provider": "langsearch", "citations": [{"url": "https://example.com"}]}
+
+    async def slow(*args):
+        await asyncio.sleep(4)
+        return None
+
+    service.decodo_search_answer = slow
+    service.langsearch_search_answer = AsyncMock(return_value=expected)
+
+    result = await service.search_fallback_answer("latest anime news", "english")
+
+    assert result == expected
+    service.langsearch_search_answer.assert_awaited_once()

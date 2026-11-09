@@ -17,6 +17,8 @@ create table if not exists public.anime_research_evidence (
   last_verified_at timestamptz not null default now()
 );
 
+alter table public.anime_research_evidence enable row level security;
+
 create index if not exists anime_research_evidence_last_verified_idx
   on public.anime_research_evidence (last_verified_at desc);
 

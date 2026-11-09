@@ -10,6 +10,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -418,6 +419,15 @@ async def telegram_error_handler(update: object, context) -> None:
         context.application.bot_data.setdefault("failed_update_ids", set()).add(update_id)
 
     error = getattr(context, "error", None)
+    error_text = str(error or "").casefold()
+    # Telegram callback queries expire; retrying the same update can never revive them.
+    if isinstance(error, BadRequest) and (
+        "query is too old" in error_text
+        or "response timeout expired" in error_text
+        or "query id is invalid" in error_text
+    ):
+        log.warning("Expired Telegram callback ignored (update_id=%s)", update_id)
+        return
     log.error(
         "Telegram handler failed (update_id=%s, error_type=%s)",
         update_id,

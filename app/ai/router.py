@@ -91,7 +91,6 @@ class AIRouter:
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 1
-    FAST_PROVIDER_ORDER = ("groq", "gemini", "nvidia")
     MAX_PROVIDER_ATTEMPT_SECONDS = 5.0
 
     # Retry only temporary failures.
@@ -449,11 +448,13 @@ class AIRouter:
     async def _generate_with_fallback(self, messages, compact_messages, output_tokens, provider_order=None):
         failures = []
         configured_order = provider_order or self.settings.provider_order
-        # Do not let a slow configured default (often Gemini) block providers that
-        # have historically returned faster for this deployment.
-        selected = [name for name in self.FAST_PROVIDER_ORDER if name in configured_order]
-        selected.extend(name for name in configured_order if name not in selected)
-        selected_order = selected
+        # The configured order is authoritative. Do not silently promote providers:
+        # operators use this order to test a primary provider and control fallbacks.
+        selected_order = list(dict.fromkeys(
+            str(name).strip().lower()
+            for name in configured_order
+            if str(name).strip()
+        ))
         total_timeout = max(10.0, min(20.0, float(getattr(self.settings, "ai_total_timeout_seconds", 20.0))))
         deadline = time.monotonic() + total_timeout
         for name in selected_order:

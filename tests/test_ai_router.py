@@ -529,3 +529,35 @@ def test_shared_personality_includes_intent_specific_editorial_formats():
     assert "numbered guide" in SYSTEM_PROMPT
     assert "curated list" in SYSTEM_PROMPT
     assert "Casual chat" in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_slow_provider_times_out_and_falls_back_within_global_budget():
+    import asyncio
+    import time
+
+    class SlowProvider:
+        name = "gemini"
+        api_key = "a"
+        async def generate(self, messages, timeout, max_tokens):
+            await asyncio.sleep(1)
+
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq"]
+    settings.ai_timeout_seconds = 0.05
+    settings.ai_total_timeout_seconds = 0.4
+    router = AIRouter(settings)
+    router.MAX_ATTEMPTS = 1
+    router.providers["gemini"] = SlowProvider()
+    router.providers["groq"] = FakeProvider("groq", "b", response="Fast fallback")
+
+    started = time.monotonic()
+    answer, provider, _ = await router.reply(
+        [{"role": "user", "content": "Tell me about One Piece"}],
+        "english",
+    )
+    elapsed = time.monotonic() - started
+
+    assert answer == "Fast fallback"
+    assert provider == "groq"
+    assert elapsed < 0.4

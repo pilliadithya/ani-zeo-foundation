@@ -109,3 +109,21 @@ def test_historical_queries_do_not_get_recent_only_filter():
     assert AnimeResearchService._is_historical_query("Naruto anime news from 2017")
     assert AnimeResearchService._is_historical_query("history of One Piece manga announcements")
     assert not AnimeResearchService._is_historical_query("latest anime news today")
+
+
+def test_archive_evidence_context_is_labelled_historical_and_shows_last_check():
+    context = AnimeResearchService.evidence_context({
+        "provider": "archive",
+        "verification": {"overall_status": "reported_by_reputable_sources"},
+        "evidence": [{
+            "title": "Historical anime announcement",
+            "domain": "animenewsnetwork.com",
+            "published": "2017-06-12",
+            "last_verified_at": "2026-11-09T10:00:00+00:00",
+            "snippet": "A report about an anime announcement.",
+            "url": "https://animenewsnetwork.com/archive",
+            "verification_status": "reputable_reporting",
+        }],
+    })
+    assert "HISTORICAL ANIME RESEARCH ARCHIVE" in context
+    assert "Last checked: 2026-11-09" in context

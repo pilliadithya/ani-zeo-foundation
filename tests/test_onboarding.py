@@ -39,7 +39,7 @@ def test_display_name_rejects_empty_and_overlong_values():
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.handlers import start, handle_onboarding_name
+from app.handlers import start, handle_onboarding_name, greeting_for_language
 
 
 class FakeOnboardingDatabase:
@@ -100,3 +100,18 @@ async def test_name_message_saves_only_the_user_chosen_name_and_moves_to_languag
     assert db.saved_name == (456, "Anime Monarch")
     assert db.step == (456, "awaiting_language")
     assert message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "lang:tenglish"
+
+
+@pytest.mark.parametrize("language", ["english", "tenglish", "hinglish", "tanglish"])
+def test_greetings_are_varied_and_use_romanised_language(language):
+    first = greeting_for_language(language)
+    second = greeting_for_language(language, previous=first)
+
+    assert first != second
+    assert not any(0x1F1E6 <= ord(char) <= 0x1F1FF for char in first)
+    assert not any(0x0900 <= ord(char) <= 0x0DFF for char in first)
+
+
+def test_greeting_supports_pirate_flag_but_never_requires_country_flags():
+    greetings = [greeting_for_language("english") for _ in range(20)]
+    assert all(not any(0x1F1E6 <= ord(char) <= 0x1F1FF for char in item) for item in greetings)

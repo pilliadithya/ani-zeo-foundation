@@ -23,3 +23,6 @@ set onboarding_step = case
 end
 where onboarding_step = 'welcome'
   and consented_at is not null;
+
+-- Do not retain Telegram usernames; the product only needs the numeric ID and chosen display name.
+update public.user_profiles set username = null where username is not null;

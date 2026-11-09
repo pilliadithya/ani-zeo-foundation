@@ -352,7 +352,7 @@ def enforce_response_format(answer: str, intent: str = "anime_question") -> str:
             raw = f"**{FORMAT_TITLES[intent]}**\n\n{raw}"
 
     # Enforce readable list spacing and prevent a wall of text on mobile.
-    raw = re.sub(r"(?m)(?<!\n)(\s*[•*-]\s+)", r"\n\1", raw)
+    raw = re.sub(r"(?m)(?<!\n)(\s*[•-]\s+)", r"\n\1", raw)
     raw = re.sub(r"\n{3,}", "\n\n", raw).strip()
     return raw
 

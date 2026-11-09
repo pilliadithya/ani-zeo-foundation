@@ -86,12 +86,12 @@ class AIRouter:
     SUMMARY_MAX_CHARS = 1_200
 
     # Provider-specific timeouts.
-    NVIDIA_TIMEOUT = 15.0
-    NVIDIA_RETRY_TIMEOUT = 8.0
+    NVIDIA_TIMEOUT = 5.0
+    NVIDIA_RETRY_TIMEOUT = 4.0
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 1
-    MAX_PROVIDER_ATTEMPT_SECONDS = 5.0
+    MAX_PROVIDER_ATTEMPT_SECONDS = 7.0
 
     # Retry only temporary failures.
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -106,7 +106,7 @@ class AIRouter:
 
         aliases = {
             "telugu": "Tenglish (natural Telugu-English in Latin script)",
-            "tenglish": "natural Telangana-friendly spoken Tenglish in Latin script",
+            "tenglish": "STRICT Tenglish: Telangana Telugu + natural English code-switching, Latin/Roman letters ONLY; never Telugu Unicode script. Romanise spoken Telugu naturally and preserve English terms.",
             "hinglish": "natural Hindi-English Hinglish in Latin script",
             "hindi": "natural Hindi-English Hinglish in Latin script",
             "tanglish": "natural spoken Tamil-English Tanglish in Latin script",
@@ -455,7 +455,7 @@ class AIRouter:
             for name in configured_order
             if str(name).strip()
         ))
-        total_timeout = max(10.0, min(20.0, float(getattr(self.settings, "ai_total_timeout_seconds", 20.0))))
+        total_timeout = max(12.0, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
         deadline = time.monotonic() + total_timeout
         for name in selected_order:
             remaining = deadline - time.monotonic()

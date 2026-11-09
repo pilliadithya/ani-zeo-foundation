@@ -1,7 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
 from typing import Any
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -10,6 +13,7 @@ class Provider:
     api_key: str
     model: str
     base_url: str
+    fallback_models: tuple[str, ...] = field(default_factory=tuple)
 
     @staticmethod
     def _usage_value(usage: dict[str, Any], *keys: str) -> int | None:
@@ -80,23 +84,47 @@ class Provider:
         if self.name == "openrouter":
             headers["X-Title"] = "Ani Zeo"
 
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-        }
-        # Gemini 3 models reject legacy sampling parameters such as temperature.
-        if not (self.name == "gemini" and self.model.startswith("gemini-3")):
-            payload["temperature"] = 0.7
+        models = [self.model]
+        if self.name == "gemini":
+            models.extend(model for model in self.fallback_models if model and model not in models)
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        data = None
+        selected_model = None
+        for index, model in enumerate(models):
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+            # Gemini 3 models reject legacy sampling parameters such as temperature.
+            if not (self.name == "gemini" and model.startswith("gemini-3")):
+                payload["temperature"] = 0.7
+
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                selected_model = model
+                if index:
+                    log.info("Gemini model fallback succeeded model=%s fallback_position=%s", model, index)
+                break
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if self.name == "gemini" and status in {429, 503} and index < len(models) - 1:
+                    log.warning(
+                        "Gemini model unavailable/rate-limited model=%s status=%s; trying next configured model",
+                        model, status,
+                    )
+                    continue
+                raise
+
+        if data is None or selected_model is None:
+            raise RuntimeError(f"{self.name} exhausted its configured model list")
 
         try:
             choices = data.get("choices")
@@ -131,7 +159,7 @@ class Provider:
             "text": content,
             "usage": self.normalize_usage(data),
             "finish_reason": choice.get("finish_reason"),
-            "model": data.get("model") or self.model,
+            "model": data.get("model") or selected_model,
         }
 
 
@@ -142,6 +170,7 @@ def build_providers(settings):
             settings.gemini_api_key,
             settings.gemini_model,
             "https://generativelanguage.googleapis.com/v1beta/openai",
+            tuple(settings.gemini_fallback_model_list),
         ),
         "groq": Provider(
             "groq",

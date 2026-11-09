@@ -190,11 +190,13 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    profile = await context.application.bot_data["db"].get_profile(update.effective_user.id)
+    db = context.application.bot_data["db"]
+    profile = await db.get_profile(update.effective_user.id)
     if not profile or not profile.get("consented_at"):
         await update.effective_message.reply_text("Please use /start to read the welcome note and begin onboarding.")
         return
     if profile.get("onboarding_step") == "awaiting_name" or not profile.get("display_name"):
+        await db.set_onboarding_step(update.effective_user.id, "awaiting_name")
         await update.effective_message.reply_text("What name should I call you?")
         return
     await update.effective_message.reply_text(

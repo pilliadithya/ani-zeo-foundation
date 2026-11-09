@@ -886,7 +886,7 @@ class AnimeResearchService:
                 "Excerpt: " + str(item.get("snippet") or "")[:700],
                 "URL: " + str(item.get("url") or ""),
             ])
-        return "\\n".join(lines)[:3_000]
+        return "\n".join(lines)[:3_000]
 
     @staticmethod
     def context_for(data):

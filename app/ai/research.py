@@ -445,6 +445,13 @@ class AnimeResearchService:
 
 
     @staticmethod
+    def _is_historical_query(query):
+        if re.search(r"\\b(history|historical|years ago|previously|in the past|old news|back in)\\b", query, re.I):
+            return True
+        current_year = date.today().year
+        return any(int(year) < current_year for year in re.findall(r"\\b(19\\d{2}|20\\d{2})\\b", query))
+
+    @staticmethod
     def _normalise_decodo_results(payload):
         """Map Decodo organic SERP results into the shared evidence shape."""
         rows = (payload.get("organic") or []) + (payload.get("top_stories") or [])
@@ -658,7 +665,7 @@ class AnimeResearchService:
                     json={
                         "query": targeted_query,
                         "count": 8,
-                        "freshness": "oneMonth",
+                        "freshness": "noLimit" if self._is_historical_query(query) else "oneMonth",
                         "contents": {"text": {"max_characters": 3000}},
                     },
                 )
@@ -718,7 +725,7 @@ class AnimeResearchService:
                             "query": target_query[:700],
                             "topic": "news",
                             "search_depth": "advanced",
-                            "time_range": "month",
+                            "time_range": None if self._is_historical_query(query) else "month",
                             "max_results": 5,
                             "include_answer": False,
                             "include_raw_content": False,

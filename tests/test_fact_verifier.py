@@ -181,3 +181,14 @@ def test_crunchyroll_is_treated_as_reputable_reporting_not_universal_primary_sou
     }], "Latest anime news")
     assert result["items"]
     assert result["items"][0]["verification_status"] == "reputable_reporting"
+
+
+def test_historical_publication_year_can_support_query_relevance():
+    result = verify_evidence([{
+        "title": "Anime industry announcement archive",
+        "url": "https://animenewsnetwork.com/archive/example",
+        "snippet": "A report about a Japanese animation announcement.",
+        "published": "2017-06-12",
+    }], "anime announcements from 2017")
+    assert result["items"]
+    assert result["items"][0]["published"] == "2017-06-12"

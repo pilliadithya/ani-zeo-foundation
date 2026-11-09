@@ -865,8 +865,9 @@ class AnimeResearchService:
             return ""
         verification = data.get("verification") or {}
         items = data.get("evidence") or []
+        archive_mode = data.get("provider") == "archive"
         lines = [
-            "CURRENT ANIME RESEARCH EVIDENCE",
+            "HISTORICAL ANIME RESEARCH ARCHIVE" if archive_mode else "CURRENT ANIME RESEARCH EVIDENCE",
             "Overall evidence status: " + str(verification.get("overall_status") or "unknown"),
             "Important: search excerpts are evidence leads, not proof of every implied claim.",
             "Only describe something as officially confirmed when a primary source explicitly confirms it.",
@@ -886,6 +887,7 @@ class AnimeResearchService:
                 "Title: " + str(item.get("title") or "")[:180],
                 "Publisher: " + str(item.get("domain") or "")[:100],
                 "Published: " + str(item.get("published") or "not supplied"),
+                "Last checked: " + str(item.get("last_verified_at") or "not recorded"),
                 "Excerpt: " + str(item.get("snippet") or "")[:700],
                 "URL: " + str(item.get("url") or ""),
             ])

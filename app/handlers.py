@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from html import escape
 import random
+import re
 from app.config import get_settings
 LANGUAGES = [("Tenglish", "tenglish"), ("Hinglish", "hinglish"), ("Tanglish", "tanglish"), ("English", "english")]
 TERMS_VERSION = "v1"
@@ -16,7 +17,7 @@ def normalise_display_name(value: str) -> str | None:
     return cleaned
 
 
-def greeting_for_language(language: str | None, display_name: str | None = None, previous: str | None = None) -> str:
+def greeting_for_language(language: str | None, display_name: str | None = None, previous: str | None = None, user_text: str | None = None) -> str:
     """Return a varied, Romanised greeting with a natural anime-style invitation."""
     greetings = {
         "english": [
@@ -42,6 +43,39 @@ def greeting_for_language(language: str | None, display_name: str | None = None,
     }
     preferred = (language or "english").strip().lower()
     options = greetings.get(preferred, greetings["english"])
+    text = (user_text or "").strip().casefold()
+    if re.match(r"^(thanks|thank you|thx|cheers)\\b", text):
+        replies = {
+            "english": ["You're welcome! ✨ Ready whenever you are for another anime discovery."],
+            "tenglish": ["Parledhu bro! ✨ Next anime adventure ki ready!"],
+            "hinglish": ["Koi baat nahi bro! ✨ Jab chaho next anime explore karte hain."],
+            "tanglish": ["Parava illa bro! ✨ Next anime adventure-ku ready!"],
+        }
+        options = replies.get(preferred, replies["english"])
+    elif re.match(r"^(bye|goodbye|see you|good night)\\b", text):
+        replies = {
+            "english": ["See you later, nakama! 👋 Your next anime adventure will be here."],
+            "tenglish": ["Malli kaluddam bro! 👋 Next anime adventure kosam ready ga unta!"],
+            "hinglish": ["Phir milte hain, nakama! 👋 Agli anime adventure tak!"],
+            "tanglish": ["Appuram paakalaam, nakama! 👋 Next anime adventure varaikkum!"],
+        }
+        options = replies.get(preferred, replies["english"])
+    elif re.fullmatch(r"(ok|okay|k|got it)[!. ]*", text):
+        replies = {
+            "english": ["Got it! 😎"],
+            "tenglish": ["Sare bro! 😎"],
+            "hinglish": ["Theek hai bro! 😎"],
+            "tanglish": ["Seri bro! 😎"],
+        }
+        options = replies.get(preferred, replies["english"])
+    elif re.fullmatch(r"how are you[?. ]*", text):
+        replies = {
+            "english": ["All systems ready for anime adventures! 😎 What shall we explore?"],
+            "tenglish": ["Anime adventures ki anni ready bro! 😎 Em explore cheddham?"],
+            "hinglish": ["Anime adventures ke liye full ready! 😎 Kya explore karein?"],
+            "tanglish": ["Anime adventure-ku full ready! 😎 Enna explore pannalaam?"],
+        }
+        options = replies.get(preferred, replies["english"])
     choices = [item for item in options if item != previous]
     greeting = random.choice(choices or options)
     if display_name:

@@ -79,6 +79,8 @@ class AIRouter:
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 2
+    FAST_PROVIDER_ORDER = ("groq", "openrouter", "gemini", "nvidia")
+    MAX_PROVIDER_ATTEMPT_SECONDS = 5.0
 
     # Retry only temporary failures.
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -355,7 +357,7 @@ class AIRouter:
 
             return self.NVIDIA_RETRY_TIMEOUT
 
-        return float(self.settings.ai_timeout_seconds)
+        return min(float(self.settings.ai_timeout_seconds), self.MAX_PROVIDER_ATTEMPT_SECONDS)
 
     @staticmethod
     def _normalize_provider_result(result, provider_name: str) -> dict:
@@ -423,8 +425,13 @@ class AIRouter:
 
     async def _generate_with_fallback(self, messages, compact_messages, output_tokens, provider_order=None):
         failures = []
-        selected_order = provider_order or self.settings.provider_order
-        total_timeout = max(5.0, float(getattr(self.settings, "ai_total_timeout_seconds", 35.0)))
+        configured_order = provider_order or self.settings.provider_order
+        # Do not let a slow configured default (often Gemini) block providers that
+        # have historically returned faster for this deployment.
+        selected = [name for name in self.FAST_PROVIDER_ORDER if name in configured_order]
+        selected.extend(name for name in configured_order if name not in selected)
+        selected_order = selected
+        total_timeout = max(10.0, min(20.0, float(getattr(self.settings, "ai_total_timeout_seconds", 20.0))))
         deadline = time.monotonic() + total_timeout
         for name in selected_order:
             remaining = deadline - time.monotonic()

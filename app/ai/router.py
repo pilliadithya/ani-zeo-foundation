@@ -379,9 +379,22 @@ class AIRouter:
         text = result.get('text')
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError(f'{provider_name} returned an empty response')
+        finish_reason = result.get('finish_reason')
+        # A non-empty response can still be incomplete. Never present a token-
+        # capped generation as a finished answer; let the router try a backup.
+        normalized_finish = str(finish_reason or '').strip().casefold()
+        incomplete_reasons = {
+            'length', 'max_tokens', 'max_output_tokens', 'max_output',
+            'max_completion_tokens', 'token_limit', 'max_token',
+        }
+        if normalized_finish in incomplete_reasons:
+            raise RuntimeError(
+                f'{provider_name} returned a truncated response '
+                f'(finish_reason={normalized_finish})'
+            )
         usage = result.get('usage')
         return {'text': text.strip(), 'usage': usage if isinstance(usage, dict) else {},
-                'model': result.get('model'), 'finish_reason': result.get('finish_reason')}
+                'model': result.get('model'), 'finish_reason': finish_reason}
 
     async def _call_provider(self, name, provider, messages, output_tokens, deadline=None):
         for attempt in range(1, self.MAX_ATTEMPTS + 1):

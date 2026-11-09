@@ -8,6 +8,7 @@ class Settings:
     ai_timeout_seconds = 12
     ai_total_timeout_seconds = 28
     ai_max_output_tokens = 1400
+    ai_groq_retry_max_output_tokens = 1800
     ai_cost_rates_json = "{}"
     nvidia_api_key = "n"
     nvidia_model = "nvidia-model"
@@ -71,6 +72,8 @@ def test_tenglish_instruction_requires_roman_script_only():
     instruction = AIRouter._language_instruction("tenglish")
     assert "Latin/Roman letters ONLY" in instruction
     assert "never Telugu Unicode script" in instruction
+    assert "Do NOT answer in English with a few Telugu words added" in instruction
+    assert "spoken Telangana Telugu sentence structure" in instruction
 
 
 def test_provider_timeouts_leave_room_for_fallbacks():

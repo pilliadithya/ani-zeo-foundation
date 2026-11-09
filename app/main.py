@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 from app.ai.router import AIRouter
-from app.ai.fact_verifier import validate_generated_answer, verification_fallback
+from app.ai.fact_verifier import validate_generated_answer, verification_fallback, verify_evidence
 from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
@@ -519,23 +519,62 @@ async def chat_message(update: Update, context) -> None:
         history = await db.get_recent_messages(user.id, limit=8)
 
         live_result = None
+        is_historical_request = research._is_historical_query(normalized_text)
         is_live_request = intent_result["intent"] == "live_news" or research.needs_live_search(normalized_text)
-        if is_live_request:
-            live_result = await research.google_grounded_answer(
-                normalized_text, profile.get("preferred_language")
-            )
+        if is_live_request or is_historical_request:
+            if is_live_request:
+                live_result = await research.google_grounded_answer(
+                    normalized_text, profile.get("preferred_language")
+                )
             if live_result is None:
                 log.info("Live search primary unavailable; trying configured sequential search fallback chain")
                 live_result = await research.search_fallback_answer(
                     normalized_text, profile.get("preferred_language")
                 )
+
+            if live_result is None and is_historical_request:
+                try:
+                    archived = await db.search_research_evidence(normalized_text, limit=5)
+                    archived_verification = verify_evidence(archived, normalized_text, limit=5)
+                    if archived_verification["items"]:
+                        archived_items = archived_verification["items"]
+                        live_result = {
+                            "answer": "",
+                            "citations": [
+                                {
+                                    "title": item["title"],
+                                    "url": item["url"],
+                                    "verification_status": item["verification_status"],
+                                }
+                                for item in archived_items
+                            ],
+                            "evidence": archived_items,
+                            "verification": archived_verification,
+                            "provider": "archive",
+                            "usage": {},
+                        }
+                        log.info("Historical research served from archive sources=%s", len(archived_items))
+                except Exception as archive_exc:
+                    log.warning("Historical research archive lookup failed (%s)", type(archive_exc).__name__)
+
             if live_result is None:
-                # Fail closed: never answer a current-news request from stale model memory.
+                # Fail closed: never answer current or historical research from model memory alone.
                 await message.reply_text(
-                    "I couldn’t verify the latest anime information from current sources right now. "
+                    "I couldn’t verify this anime information from available sources right now. "
                     "Please try again shortly."
                 )
                 return
+
+            if live_result.get("provider") != "archive":
+                try:
+                    stored = await db.store_research_evidence(
+                        live_result.get("evidence") or [],
+                        live_result.get("provider") or "unknown",
+                    )
+                    if stored:
+                        log.info("Anime research archive updated records=%s", stored)
+                except Exception as archive_exc:
+                    log.warning("Anime research archive write skipped (%s)", type(archive_exc).__name__)
 
         metadata = None
         title = None
@@ -571,7 +610,7 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.evidence_context(live_result),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
-                    "This is a current anime research request. Answer from the supplied evidence only. "
+                    ("This is a historical anime research request. Treat archived sources as historical reporting, not current status. " if is_historical_request else "This is a current anime research request. ") + "Answer from the supplied evidence only. "
                     + (
                         "BIG THREE RESPONSE FORMAT: Cover One Piece, Naruto/Boruto, and Bleach separately. "
                         "Give one short, useful, recent update for each franchise only when the supplied evidence supports it. "

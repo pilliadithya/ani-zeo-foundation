@@ -16,6 +16,41 @@ def normalise_display_name(value: str) -> str | None:
     return cleaned
 
 
+def greeting_for_language(language: str | None, display_name: str | None = None, previous: str | None = None) -> str:
+    """Return a varied, Romanised greeting with a natural anime-style invitation."""
+    greetings = {
+        "english": [
+            "Hey! 👋 What anime adventure are we starting today? ⚔️",
+            "Yo, nakama! ✨ Looking for a new anime to love or a mystery to solve?",
+            "Ahoy, anime explorer! 🏴‍☠️ Ready to sail through a sea of stories?",
+        ],
+        "tenglish": [
+            "Hey bro! 😎 Eeroju ye anime adventure start cheddham?",
+            "Nakama! ✨ Nee next favourite anime ni discover cheddhama?",
+            "Ready aa? ⚔️ Mana anime journey ippude start avthundhi!",
+        ],
+        "hinglish": [
+            "Yo bro! 😎 Aaj ka anime mission kya hai?",
+            "Nakama! ✨ Tumhara next favourite anime dhoondhein?",
+            "Chalo, ek nayi anime adventure shuru karte hain! ⚔️",
+        ],
+        "tanglish": [
+            "Hey nakama! 😎 Innaiku endha anime explore pannalaam?",
+            "Un next favourite anime-a discover pannalaama? ✨",
+            "Pudhu anime adventure start pannalaama? ⚔️",
+        ],
+    }
+    preferred = (language or "english").strip().lower()
+    options = greetings.get(preferred, greetings["english"])
+    choices = [item for item in options if item != previous]
+    greeting = random.choice(choices or options)
+    if display_name:
+        safe_name = normalise_display_name(display_name)
+        if safe_name:
+            greeting = f"{safe_name}, {greeting[0].lower()}{greeting[1:]}"
+    return greeting
+
+
 async def handle_onboarding_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Consume a text message as the requested display name during onboarding."""
     user = update.effective_user

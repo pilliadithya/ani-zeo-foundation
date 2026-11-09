@@ -5,13 +5,13 @@ def test_provider_order_parses():
     assert s.provider_order == ["gemini","groq","nvidia"]
 
 
-def test_default_ai_fallback_includes_nvidia():
+def test_default_ai_fallback_prioritizes_fast_provider():
     settings = Settings(
         telegram_bot_token="test",
         webhook_secret="secret",
         database_url="postgresql://user:pass@localhost/db",
     )
-    assert settings.provider_order == ["gemini", "nvidia", "groq", "openrouter"]
+    assert settings.provider_order == ["groq", "openrouter", "gemini", "nvidia"]
 
 
 def test_search_provider_order_is_configurable_and_validated():

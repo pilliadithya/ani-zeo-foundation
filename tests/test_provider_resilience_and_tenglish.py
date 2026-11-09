@@ -70,8 +70,8 @@ async def test_groq_truncation_retries_once_with_larger_token_budget():
 
 def test_tenglish_instruction_requires_roman_script_only():
     instruction = AIRouter._language_instruction("tenglish")
-    assert "Latin/Roman letters ONLY" in instruction
-    assert "never Telugu Unicode script" in instruction
+    assert "spoken Telangana Telugu sentence structure" in instruction
+    assert "Do NOT use Telugu Unicode script" in instruction
     assert "Do NOT answer in English with a few Telugu words added" in instruction
     assert "spoken Telangana Telugu sentence structure" in instruction
 

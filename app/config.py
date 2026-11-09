@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 12
     ai_total_timeout_seconds: float = 28
     ai_max_output_tokens: int = 1400
+    # Allow a single Groq retry with a larger completion budget after finish_reason=length.
+    ai_groq_retry_max_output_tokens: int = 1800
     ai_cost_rates_json: str = "{}"
     ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""

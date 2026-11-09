@@ -4,6 +4,7 @@ This layer does not claim that a source is infallible. It labels evidence streng
 rejects malformed or off-topic sources, and prevents snippets from being called
 officially confirmed unless they come from a recognized primary source.
 """
+from datetime import date
 from urllib.parse import urlparse
 import re
 
@@ -113,6 +114,7 @@ def _chapter_date_claims(items: list[dict]) -> dict:
 
 
 def _date_keys(text: str) -> set[str]:
+    """Extract only calendar-valid dates so impossible dates cannot verify claims."""
     month_names = {
         "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
         "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
@@ -126,10 +128,26 @@ def _date_keys(text: str) -> set[str]:
         text,
     ):
         month = month_names.get(match.group(1).lower())
-        if month:
-            keys.add(f"{match.group(3) or ''}-{month:02d}-{int(match.group(2)):02d}")
+        day = int(match.group(2))
+        year_text = match.group(3)
+        if not month:
+            continue
+        try:
+            if year_text:
+                date(int(year_text), month, day)
+            elif day < 1 or day > 31:
+                continue
+        except ValueError:
+            continue
+        keys.add(f"{year_text or ''}-{month:02d}-{day:02d}")
+
     for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
-        keys.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+        year, month, day = map(int, match.groups())
+        try:
+            date(year, month, day)
+        except ValueError:
+            continue
+        keys.add(f"{year:04d}-{month:02d}-{day:02d}")
     return keys
 
 

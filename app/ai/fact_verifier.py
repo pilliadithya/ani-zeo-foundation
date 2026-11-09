@@ -234,6 +234,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             "snippet": snippet[:900],
             "domain": host,
             "published": str(item.get("published") or item.get("published_date") or "")[:32],
+            "last_verified_at": str(item.get("last_verified_at") or "")[:40],
             "verification_status": status,
             "search_score": score if isinstance(score, (int, float)) else None,
         })

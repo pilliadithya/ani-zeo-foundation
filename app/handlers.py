@@ -103,6 +103,11 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("That language choice isn't available.")
         return
     db = context.application.bot_data["db"]
+    profile = await db.get_profile(update.effective_user.id) or {}
+    if profile.get("onboarding_step") == "awaiting_name" or not profile.get("display_name"):
+        await db.set_onboarding_step(update.effective_user.id, "awaiting_name")
+        await q.edit_message_text("Before choosing a language, what name should I call you?")
+        return
     await db.set_language(update.effective_user.id, language)
     await db.set_onboarding_step(update.effective_user.id, "completed")
     greetings = {
@@ -117,10 +122,17 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    profile=await context.application.bot_data["db"].get_profile(update.effective_user.id)
+    profile = await context.application.bot_data["db"].get_profile(update.effective_user.id)
     if not profile or not profile.get("consented_at"):
-        await update.effective_message.reply_text("Please use /start and review the consent information first."); return
-    await update.effective_message.reply_text("Choose your preferred language:", reply_markup=language_keyboard())
+        await update.effective_message.reply_text("Please use /start to read the welcome note and begin onboarding.")
+        return
+    if profile.get("onboarding_step") == "awaiting_name" or not profile.get("display_name"):
+        await update.effective_message.reply_text("What name should I call you?")
+        return
+    await update.effective_message.reply_text(
+        "Choose your preferred language:",
+        reply_markup=language_keyboard(),
+    )
 
 async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Start fresh",callback_data="newchat:yes"),InlineKeyboardButton("Cancel",callback_data="newchat:no")]])

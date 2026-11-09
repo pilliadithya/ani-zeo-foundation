@@ -23,12 +23,27 @@ TITLE = re.compile(r"^(?:tell me about|info about|information about|details abou
 QUERY = """query ($search: String) { Media(search: $search, type: ANIME) { title { romaji english native } format status episodes season seasonYear genres averageScore description(asHtml: false) siteUrl coverImage { large } } }"""
 
 class AnimeResearchService:
-    def __init__(self, api_key="", model="gemini-2.5-flash", tavily_api_key=""):
+    def __init__(
+        self,
+        api_key="",
+        model="gemini-2.5-flash",
+        tavily_api_key="",
+        decodo_api_key="",
+        langsearch_api_key="",
+        search_provider_order=None,
+        decodo_geo="IN",
+    ):
         self.api_key, self.model = api_key, model
         self.tavily_api_key = tavily_api_key
+        self.decodo_api_key = decodo_api_key
+        self.langsearch_api_key = langsearch_api_key
+        self.search_provider_order = search_provider_order or ["decodo", "langsearch", "tavily"]
+        self.decodo_geo = decodo_geo or "IN"
         self.cache = {}
         self.grounding_disabled_until = 0.0
         self.tavily_disabled_until = 0.0
+        self.decodo_disabled_until = 0.0
+        self.langsearch_disabled_until = 0.0
 
     TYPO_PHRASES = (
         (r"\bone\s+peice\b", "One Piece"),
@@ -428,6 +443,249 @@ class AnimeResearchService:
             self.grounding_disabled_until = time.monotonic() + 30
             return None
 
+
+    @staticmethod
+    def _normalise_decodo_results(payload):
+        """Map Decodo organic SERP results into the shared evidence shape."""
+        rows = payload.get("organic") or []
+        return [
+            {
+                "title": item.get("title") or "",
+                "url": item.get("link") or item.get("original_link") or "",
+                "content": item.get("description") or "",
+                "published_date": "",
+                "score": None,
+            }
+            for item in rows if isinstance(item, dict)
+        ]
+
+    @staticmethod
+    def _normalise_langsearch_results(payload):
+        """Map LangSearch webpage results into the shared evidence shape."""
+        rows = ((payload.get("data") or {}).get("webPages") or {}).get("value") or []
+        return [
+            {
+                "title": item.get("name") or "",
+                "url": item.get("url") or "",
+                "content": item.get("text") or item.get("snippet") or "",
+                "published_date": item.get("datePublished") or "",
+                "score": None,
+            }
+            for item in rows if isinstance(item, dict)
+        ]
+
+    def _build_search_result(self, raw_results, query, language, provider, usage=None):
+        """Apply one relevance, provenance and presentation pipeline to every search provider."""
+        candidates = []
+        rejected = 0
+        for item in raw_results or []:
+            url = item.get("url")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                rejected += 1
+                continue
+            snippet = self._clean_search_snippet(
+                item.get("content") or item.get("description") or item.get("snippet"),
+                limit=700,
+            )
+            if not snippet or not self._is_relevant_anime_result(item, query):
+                rejected += 1
+                continue
+            candidates.append({
+                "title": self._clean_search_title(item),
+                "url": url,
+                "snippet": snippet,
+                "published": item.get("published_date") or item.get("published") or "",
+                "score": item.get("score"),
+            })
+
+        verification = verify_evidence(candidates, query, limit=5)
+        evidence = verification["items"]
+        citations = [
+            {
+                "title": item["title"],
+                "url": item["url"],
+                "verification_status": item["verification_status"],
+            }
+            for item in evidence
+        ]
+        is_big_three = bool(re.search(r"\bbig\s*3\b|big three", query, re.I))
+        grouped = {"One Piece": [], "Naruto / Boruto": [], "Bleach": []}
+        general_findings = []
+        for item in evidence:
+            franchise = self._big_three_franchise({
+                "title": item["title"], "content": item["snippet"], "url": item["url"]
+            }) if is_big_three else None
+            entry = {
+                "title": item["title"],
+                "snippet": item["snippet"][:300],
+                "domain": item["domain"],
+                "published": item["published"][:10],
+                "verification_status": item["verification_status"],
+            }
+            if is_big_three:
+                if franchise:
+                    grouped[franchise].append(entry)
+            else:
+                general_findings.append(entry)
+
+        findings = (
+            [(name, entries[:2]) for name, entries in grouped.items() if entries]
+            if is_big_three
+            else [("Update", general_findings[:3])] if general_findings else []
+        )
+        if not citations or not findings:
+            log.warning(
+                "Live search provider=%s outcome=unverified reason=no_relevant_anime_sources rejected=%s",
+                provider,
+                rejected,
+            )
+            return None
+
+        language = (language or "english").lower()
+        if language in {"tenglish", "telugu", "telugu_english"}:
+            opening = "Bro, anime side lo dorikina latest updates ivi 👀" if is_big_three else "Bro, ee update chudu 👀"
+            caveat = "Source lo unna information varake cheptunna — confirm kaani details ni guess cheyyanu."
+        elif language == "tanglish":
+            opening = "Hey, anime side-la latest-a kidaicha updates idhu 👀" if is_big_three else "Hey, indha update paaru 👀"
+            caveat = "Source-la confirm aana details mattum dhaan; confirm aagala na guess panna maatten."
+        elif language == "hinglish":
+            opening = "Hey, anime side se jo latest updates mile, woh ye hain 👀" if is_big_three else "Hey, ye update dekho 👀"
+            caveat = "Source mein jitna confirm hai, main utna hi bata raha hoon — baaki guess nahi karunga."
+        else:
+            opening = "Hey! Here's what I could find from recent anime reports." if is_big_three else "Hey! Here's the update I found."
+            caveat = "I'm sticking to what these sources actually report, so I won't fill in details they haven't confirmed."
+
+        conversational = [opening]
+        for franchise, entries in findings:
+            if is_big_three:
+                conversational.append(f"**{franchise}:**")
+            for entry in entries:
+                published_text = f" (reported {entry['published']})" if entry["published"] else ""
+                conversational.append(f"{entry['snippet']}{published_text}")
+        conversational.append(caveat)
+        result = {
+            "answer": "\n\n".join(conversational)[:2400],
+            "citations": citations,
+            "evidence": evidence,
+            "verification": verification,
+            "provider": provider,
+            "usage": usage or {},
+        }
+        return result
+
+    async def search_fallback_answer(self, query, language=None):
+        """Try configured search providers sequentially; stop at the first verified result."""
+        methods = {
+            "decodo": self.decodo_search_answer,
+            "langsearch": self.langsearch_search_answer,
+            "tavily": self.tavily_search_answer,
+        }
+        for provider in self.search_provider_order:
+            method = methods.get(str(provider).lower())
+            if method is None:
+                continue
+            result = await method(query, language)
+            if result:
+                return result
+        return None
+
+    async def decodo_search_answer(self, query, language=None):
+        """Search public web results through Decodo's Web Data API."""
+        if not self.decodo_api_key or time.monotonic() < self.decodo_disabled_until:
+            log.info("Live search provider=decodo outcome=skipped reason=not_configured_or_cooldown")
+            return None
+        cache_key = "decodo:" + (language or "") + ":" + re.sub(r"\s+", " ", query.casefold()).strip()
+        cached = self._cached(cache_key)
+        if cached is not None:
+            return cached
+        today = date.today().isoformat()
+        targeted_query = (
+            "One Piece Naruto Boruto Bleach official anime news announcements updates"
+            if re.search(r"\bbig\s*3\b|big three", query, re.I)
+            else f"Japanese anime and manga news official announcements: {query[:500]}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                response = await client.post(
+                    "https://data.decodo.com/v1/search",
+                    headers={
+                        "Authorization": f"Bearer {self.decodo_api_key}",
+                        "Accept": "application/json",
+                    },
+                    json={"query": targeted_query, "geo": self.decodo_geo, "locale": "en", "page": 1},
+                )
+                response.raise_for_status()
+                payload = response.json()
+            if payload.get("status") != "done":
+                log.warning("Live search provider=decodo outcome=failed category=job_status")
+                return None
+            result = self._build_search_result(
+                self._normalise_decodo_results(payload), query, language, "decodo"
+            )
+            if result:
+                self._store(cache_key, result, ttl=300)
+                log.info("Live search provider=decodo outcome=success sources=%s", len(result["citations"]))
+            return result
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            category = "rate_limited" if status == 429 else "authentication" if status in (401, 403) else "provider_error"
+            log.warning("Live search provider=decodo outcome=failed category=%s status=%s", category, status)
+            self.decodo_disabled_until = time.monotonic() + (60 if status == 429 else 30)
+            return None
+        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+            log.warning("Live search provider=decodo outcome=failed category=%s", type(exc).__name__)
+            self.decodo_disabled_until = time.monotonic() + 30
+            return None
+
+    async def langsearch_search_answer(self, query, language=None):
+        """Search and retrieve bounded webpage text through LangSearch."""
+        if not self.langsearch_api_key or time.monotonic() < self.langsearch_disabled_until:
+            log.info("Live search provider=langsearch outcome=skipped reason=not_configured_or_cooldown")
+            return None
+        cache_key = "langsearch:" + (language or "") + ":" + re.sub(r"\s+", " ", query.casefold()).strip()
+        cached = self._cached(cache_key)
+        if cached is not None:
+            return cached
+        targeted_query = (
+            "One Piece Naruto Boruto Bleach official anime news announcements updates"
+            if re.search(r"\bbig\s*3\b|big three", query, re.I)
+            else f"Japanese anime and manga news official announcements: {query[:500]}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=18) as client:
+                response = await client.post(
+                    "https://api.langsearch.com/v1/web-search",
+                    headers={"Authorization": f"Bearer {self.langsearch_api_key}"},
+                    json={
+                        "query": targeted_query,
+                        "count": 8,
+                        "freshness": "oneMonth",
+                        "contents": {"text": {"max_characters": 3000}},
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+            if str(payload.get("code")) != "200":
+                log.warning("Live search provider=langsearch outcome=failed category=api_code")
+                return None
+            result = self._build_search_result(
+                self._normalise_langsearch_results(payload), query, language, "langsearch"
+            )
+            if result:
+                self._store(cache_key, result, ttl=300)
+                log.info("Live search provider=langsearch outcome=success sources=%s", len(result["citations"]))
+            return result
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            category = "rate_limited" if status == 429 else "authentication" if status in (401, 403) else "provider_error"
+            log.warning("Live search provider=langsearch outcome=failed category=%s status=%s", category, status)
+            self.langsearch_disabled_until = time.monotonic() + (60 if status == 429 else 30)
+            return None
+        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+            log.warning("Live search provider=langsearch outcome=failed category=%s", type(exc).__name__)
+            self.langsearch_disabled_until = time.monotonic() + 30
+            return None
+
     async def tavily_search_answer(self, query, language=None):
         """One sequential backup search. Returns only answers with source URLs."""
         if not self.tavily_api_key or time.monotonic() < self.tavily_disabled_until:
@@ -456,12 +714,12 @@ class AnimeResearchService:
                 async def fetch_results(target_query):
                     response = await client.post(
                         "https://api.tavily.com/search",
+                        headers={"Authorization": f"Bearer {self.tavily_api_key}"},
                         json={
-                            "api_key": self.tavily_api_key,
                             "query": target_query[:700],
                             "topic": "news",
                             "search_depth": "advanced",
-                            "days": 30,
+                            "time_range": "month",
                             "max_results": 5,
                             "include_answer": False,
                             "include_raw_content": False,

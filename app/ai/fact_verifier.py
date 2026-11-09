@@ -15,13 +15,27 @@ PRIMARY_DOMAINS = {
     "viz.com",
     "vizmedia.com",
     "shueisha.co.jp",
-    "crunchyroll.com",
     "toei-animation.com",
     "pierrot.jp",
     "aniplex.co.jp",
     "kodansha.co.jp",
     "naruto-official.com",
     "bleach-anime.com",
+    "mappa.co.jp",
+    "ufotable.com",
+    "kyotoanimation.co.jp",
+    "ghibli.jp",
+    "witstudio.co.jp",
+    "bones.co.jp",
+    "cloverworks.co.jp",
+    "production-ig.co.jp",
+    "a1p.jp",
+    "bnfw.co.jp",
+    "kadokawa.co.jp",
+    "shogakukan.co.jp",
+    "hakusensha.co.jp",
+    "square-enix.com",
+    "ponycanyon.co.jp",
 }
 
 REPUTABLE_NEWS_DOMAINS = {
@@ -32,11 +46,21 @@ REPUTABLE_NEWS_DOMAINS = {
     "crunchyroll.com",
     "comicbook.com",
     "ign.com",
+    "variety.com",
+    "deadline.com",
+    "hollywoodreporter.com",
+    "polygon.com",
+    "anitrendz.com",
 }
 
 ANIME_TERMS = {
-    "anime", "manga", "one piece", "naruto", "boruto", "bleach",
-    "shonen jump", "shueisha", "crunchyroll", "toei animation",
+    "anime", "manga", "manhwa", "manhua", "light novel", "japanese animation",
+    "one piece", "naruto", "boruto", "bleach", "dragon ball", "jujutsu kaisen",
+    "demon slayer", "attack on titan", "frieren", "solo leveling",
+    "shonen jump", "shueisha", "manga plus", "viz media", "crunchyroll",
+    "toei animation", "mappa", "ufotable", "kyoto animation", "studio ghibli",
+    "wit studio", "bones", "cloverworks", "production i.g", "a-1 pictures",
+    "aniplex", "kadokawa", "kodansha", "seiyuu", "voice actor",
 }
 
 

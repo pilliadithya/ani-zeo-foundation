@@ -157,3 +157,25 @@ def test_language_request_is_a_contextual_follow_up():
     result = AnimeResearchService.detect_intent("Bro in Telugu", history)
     assert result["intent"] == "follow_up"
     assert result["scope"] == "anime"
+
+
+def test_telugu_script_one_piece_question_is_anime_scope():
+    result = AnimeResearchService.detect_intent('One Piece గురించి చెప్పు')
+    assert result['intent'] == 'anime_question'
+    assert result['scope'] == 'anime'
+
+
+def test_roman_telugu_anime_question_is_anime_scope():
+    result = AnimeResearchService.detect_intent('One Piece gurinchi cheppu')
+    assert result['intent'] == 'anime_question'
+    assert result['scope'] == 'anime'
+
+
+def test_language_followup_works_with_recent_assistant_answer():
+    history = [
+        {'role': 'user', 'content': 'Tell me about One Piece'},
+        {'role': 'assistant', 'content': 'One Piece is a pirate adventure about Luffy.'},
+    ]
+    result = AnimeResearchService.detect_intent('Bro in Telugu', history)
+    assert result['intent'] == 'follow_up'
+    assert result['scope'] == 'anime'

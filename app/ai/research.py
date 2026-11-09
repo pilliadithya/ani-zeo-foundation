@@ -128,19 +128,30 @@ class AnimeResearchService:
         explicit_anime_scope = bool(
             ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected)
         )
+        has_recent_assistant = any(
+            isinstance(item, dict) and item.get("role") == "assistant"
+            for item in (history or [])[-6:]
+        )
+        language_followup = bool(
+            re.search(r"\b(in|into|to)\s+(telugu|english|hindi|tamil|kannada|malayalam)\b", lower)
+            and has_recent_assistant
+        )
+        telugu_anime = bool(
+            re.search(r"(గురించి|చెప్పు|చెప్పండి|కథ|పాత్ర|మాంగా|అనిమే|ఎపిసోడ్|చాప్టర్|లఫీ|జోరో|నరుటో|బ్లీచ్|వన్\s*పీస్)", corrected)
+            or re.search(r"\b(gurinchi|gurunchi|cheppu|cheppava|katha|patra)\b", lower)
+        )
         followup_candidate = bool(
             has_context
-            and len(corrected.split()) <= 10
+            and len(corrected.split()) <= 12
             and (
                 re.search(
                     r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue)\b",
                     lower,
                 )
                 or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
-                or re.search(r"\b(in|into|to)\s+(telugu|english|hindi|tamil|kannada|malayalam)\b", lower)
             )
-        )
-        anime_scope = explicit_anime_scope or followup_candidate
+        ) or language_followup
+        anime_scope = explicit_anime_scope or followup_candidate or telugu_anime
 
         if GREETING.fullmatch(corrected):
             intent = "greeting"
@@ -158,6 +169,8 @@ class AnimeResearchService:
             intent = "industry_question"
         elif followup_candidate:
             intent = "follow_up"
+        elif telugu_anime:
+            intent = "anime_question"
         else:
             intent = "anime_question" if anime_scope else "unclear"
 

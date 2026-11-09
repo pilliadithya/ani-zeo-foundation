@@ -33,7 +33,7 @@ async def handle_onboarding_name(update: Update, context: ContextTypes.DEFAULT_T
     await db.set_display_name(user.id, display_name)
     await db.set_onboarding_step(user.id, "awaiting_language")
     await message.reply_text(
-        f"Nice to meet you, {display_name}! ✨\\n\\nChoose the language you'd like Ani Zeo to use:",
+        f"Nice to meet you, {display_name}! ✨\n\nChoose the language you'd like Ani Zeo to use:",
         reply_markup=language_keyboard(),
     )
     return True
@@ -61,13 +61,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text("Choose the language you'd like Ani Zeo to use:", reply_markup=language_keyboard())
         return
     welcome = (
-        "✨ <b>Welcome to ANI ZEO!</b>\\n"
-        "<i>Your Anime Discovery Companion</i>\\n\\n"
-        "Hey, anime nakama! 👋 Discover anime and manga, explore characters and watch orders, and find useful anime updates with your companion.\\n\\n"
-        "💡 <b>Did you know?</b> Ani Zeo is an independent prototype created by <b>Anime Monarch</b> and is currently under development and testing.\\n\\n"
-        "⚠️ <b>AI notice:</b> AI-generated answers can be inaccurate or outdated. Check important announcements and release details against official sources.\\n\\n"
-        "🔒 <b>Privacy:</b> Telegram provides your account ID automatically. We ask only for the name you'd like us to use and your preferred language. Your profile and conversation messages may be stored to operate the service; messages sent to AI providers are processed to generate replies. Avoid sharing passwords or sensitive information. Use /privacy to learn about data deletion.\\n\\n"
-        "Ani Zeo is an independent project and is not affiliated with anime studios, publishers or streaming platforms.\\n\\n"
+        "✨ <b>Welcome to ANI ZEO!</b>\n"
+        "<i>Your Anime Discovery Companion</i>\n\n"
+        "Hey, anime nakama! 👋 Discover anime and manga, explore characters and watch orders, and find useful anime updates with your companion.\n\n"
+        "💡 <b>Did you know?</b> Ani Zeo is an independent prototype created by <b>Anime Monarch</b> and is currently under development and testing.\n\n"
+        "⚠️ <b>AI notice:</b> AI-generated answers can be inaccurate or outdated. Check important announcements and release details against official sources.\n\n"
+        "🔒 <b>Privacy:</b> Telegram provides your account ID automatically. We ask only for the name you'd like us to use and your preferred language. Your profile and conversation messages may be stored to operate the service; messages sent to AI providers are processed to generate replies. Avoid sharing passwords or sensitive information. Use /privacy to learn about data deletion.\n\n"
+        "Ani Zeo is an independent project and is not affiliated with anime studios, publishers or streaming platforms.\n\n"
         "Ready to begin?"
     )
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✨ Continue", callback_data="consent:yes")], [InlineKeyboardButton("Not now", callback_data="consent:no")]])
@@ -92,7 +92,7 @@ async def consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await db.set_consent(update.effective_user.id, TERMS_VERSION)
     await db.set_onboarding_step(update.effective_user.id, "awaiting_name")
-    await q.edit_message_text("Adventure accepted! ✨\\n\\nWhat name should I call you?")
+    await q.edit_message_text("Adventure accepted! ✨\n\nWhat name should I call you?")
 
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

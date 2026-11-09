@@ -583,7 +583,7 @@ async def chat_message(update: Update, context) -> None:
                     + f"User query: {normalized_text}"
                 ),
                 provider_order=(
-                    ["groq", "openrouter", "gemini"]
+                    ["nvidia", "groq", "openrouter", "gemini"]
                     if live_result.get("provider") == "tavily"
                     else None
                 ),

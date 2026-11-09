@@ -504,8 +504,8 @@ async def chat_message(update: Update, context) -> None:
                 normalized_text, profile.get("preferred_language")
             )
             if live_result is None:
-                log.info("Live search primary unavailable; trying sequential backup provider=tavily")
-                live_result = await research.tavily_search_answer(
+                log.info("Live search primary unavailable; trying configured sequential search fallback chain")
+                live_result = await research.search_fallback_answer(
                     normalized_text, profile.get("preferred_language")
                 )
             if live_result is None:
@@ -696,7 +696,7 @@ async def lifespan(app: FastAPI):
 
     telegram_app.bot_data["db"] = db
     telegram_app.bot_data["ai"] = AIRouter(settings)
-    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key)
+    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key, settings.decodo_api_key, settings.langsearch_api_key, settings.search_order, settings.decodo_geo)
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))

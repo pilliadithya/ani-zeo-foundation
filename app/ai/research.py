@@ -357,7 +357,7 @@ class AnimeResearchService:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
             request_started = time.monotonic()
-            async with httpx.AsyncClient(timeout=18) as client:
+            async with httpx.AsyncClient(timeout=5) as client:
                 res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
                     "contents":[{"role":"user","parts":[{"text":prompt}]}],
                     "tools":[{"google_search":{}}],
@@ -584,17 +584,29 @@ class AnimeResearchService:
         return result
 
     async def search_fallback_answer(self, query, language=None):
-        """Try configured search providers sequentially; stop at the first verified result."""
+        """Run a bounded sequential fallback chain; never let search stall a Telegram reply."""
         methods = {
             "decodo": self.decodo_search_answer,
             "langsearch": self.langsearch_search_answer,
             "tavily": self.tavily_search_answer,
         }
+        deadline = time.monotonic() + 8.0
         for provider in self.search_provider_order:
             method = methods.get(str(provider).lower())
             if method is None:
                 continue
-            result = await method(query, language)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.1:
+                log.warning("Search budget exhausted before provider=%s", provider)
+                break
+            try:
+                result = await asyncio.wait_for(
+                    method(query, language),
+                    timeout=min(2.7, remaining),
+                )
+            except asyncio.TimeoutError:
+                log.warning("Live search provider=%s outcome=timeout budget_seconds=%.1f", provider, min(2.7, remaining))
+                continue
             if result:
                 return result
         return None

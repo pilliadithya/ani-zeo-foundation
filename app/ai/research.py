@@ -232,10 +232,13 @@ class AnimeResearchService:
         url = str(item.get("url") or "")
         haystack = re.sub(r"\s+", " ", f"{title} {content} {url}").casefold()
         anime_terms = (
-            "anime", "manga", "japanese animation", "shonen jump",
-            "weekly shonen jump", "shueisha", "crunchyroll",
-            "toei animation", "pierrot", "mappa", "ufotable",
-            "viz media", "kodansha", "aniplex",
+            "anime", "manga", "manhwa", "manhua", "light novel",
+            "japanese animation", "shonen jump", "weekly shonen jump",
+            "shueisha", "manga plus", "crunchyroll", "toei animation",
+            "pierrot", "mappa", "ufotable", "kyoto animation",
+            "studio ghibli", "wit studio", "bones", "cloverworks",
+            "production i.g", "a-1 pictures", "viz media", "kodansha",
+            "aniplex", "kadokawa", "shogakukan", "seiyuu", "voice actor",
             "one piece", "naruto", "boruto", "bleach",
         )
         return any(term in haystack for term in anime_terms)

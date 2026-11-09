@@ -447,7 +447,7 @@ class AnimeResearchService:
     @staticmethod
     def _normalise_decodo_results(payload):
         """Map Decodo organic SERP results into the shared evidence shape."""
-        rows = payload.get("organic") or []
+        rows = (payload.get("organic") or []) + (payload.get("top_stories") or [])
         return [
             {
                 "title": item.get("title") or "",
@@ -598,7 +598,6 @@ class AnimeResearchService:
         cached = self._cached(cache_key)
         if cached is not None:
             return cached
-        today = date.today().isoformat()
         targeted_query = (
             "One Piece Naruto Boruto Bleach official anime news announcements updates"
             if re.search(r"\bbig\s*3\b|big three", query, re.I)

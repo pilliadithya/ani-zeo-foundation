@@ -47,7 +47,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
     db = context.application.bot_data["db"]
-    await db.ensure_profile(user.id, None, None)
     profile = await db.get_profile(user.id) or {}
     step = profile.get("onboarding_step") or "welcome"
     if profile.get("consented_at") and profile.get("preferred_language") and step == "completed":
@@ -87,9 +86,9 @@ async def consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     db = context.application.bot_data["db"]
     if q.data == "consent:no":
-        await db.set_onboarding_step(update.effective_user.id, "declined")
         await q.edit_message_text("No problem. Ani Zeo won't continue onboarding. You can send /start whenever you'd like to review the welcome note again.")
         return
+    await db.ensure_profile(update.effective_user.id)
     await db.set_consent(update.effective_user.id, TERMS_VERSION)
     await db.set_onboarding_step(update.effective_user.id, "awaiting_name")
     await q.edit_message_text("Adventure accepted! ✨\n\nWhat name should I call you?")

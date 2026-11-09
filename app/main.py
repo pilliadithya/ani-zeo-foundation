@@ -610,7 +610,8 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.evidence_context(live_result),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
-                    ("This is a historical anime research request. Treat archived sources as historical reporting, not current status. " if is_historical_request else "This is a current anime research request. ") + "Answer from the supplied evidence only. "
+                    + ("This is a historical anime research request. Treat archived sources as historical reporting, not current status. " if is_historical_request else "This is a current anime research request. ")
+                    + "Answer from the supplied evidence only. "
                     + (
                         "BIG THREE RESPONSE FORMAT: Cover One Piece, Naruto/Boruto, and Bleach separately. "
                         "Give one short, useful, recent update for each franchise only when the supplied evidence supports it. "

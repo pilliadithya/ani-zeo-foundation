@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     webhook_secret: str
     database_url: str
-    ai_provider_order: str = "groq,openrouter,gemini,nvidia"
+    ai_provider_order: str = "groq,gemini,nvidia"
     ai_timeout_seconds: float = 12
     ai_total_timeout_seconds: float = 20
     ai_max_output_tokens: int = 700

@@ -565,29 +565,34 @@ async def test_slow_provider_times_out_and_falls_back_within_global_budget():
 
 
 @pytest.mark.asyncio
-async def test_fast_provider_order_overrides_slow_environment_order():
-    class SlowGemini:
-        api_key = "g"
-        async def generate(self, messages, timeout, max_tokens):
-            raise asyncio.TimeoutError("slow Gemini")
+async def test_router_respects_configured_provider_order_exactly():
+    class RecordingProvider:
+        def __init__(self, name, api_key, response=None, error=None):
+            self.name, self.api_key = name, api_key
+            self.response, self.error = response, error
 
-    class FastGroq:
-        api_key = "k"
         async def generate(self, messages, timeout, max_tokens):
-            return {"text": "Fast Groq answer", "usage": {}}
+            call_order.append(self.name)
+            if self.error:
+                raise self.error
+            return {"text": self.response, "usage": {}}
 
     settings = FakeSettings()
-    settings.provider_order = ["gemini", "nvidia", "groq", "openrouter"]
-    settings.ai_timeout_seconds = 5
+    settings.provider_order = ["nvidia", "groq", "gemini", "openrouter"]
+    settings.ai_timeout_seconds = 1
     settings.ai_total_timeout_seconds = 20
     router = AIRouter(settings)
-    router.providers["gemini"] = SlowGemini()
-    router.providers["groq"] = FastGroq()
+    call_order = []
+    router.providers["nvidia"] = RecordingProvider("nvidia", "n", error=RuntimeError("NVIDIA unavailable"))
+    router.providers["groq"] = RecordingProvider("groq", "g", error=RuntimeError("Groq unavailable"))
+    router.providers["gemini"] = RecordingProvider("gemini", "m", response="Gemini fallback answer")
+    router.providers["openrouter"] = RecordingProvider("openrouter", "o", response="OpenRouter answer")
 
     answer, provider, _ = await router.reply([{"role": "user", "content": "Hi"}])
 
-    assert answer == "Fast Groq answer"
-    assert provider == "groq"
+    assert answer == "Gemini fallback answer"
+    assert provider == "gemini"
+    assert call_order == ["nvidia", "groq", "gemini"]
 
 
 def test_short_anime_question_gets_complete_answer_token_budget():

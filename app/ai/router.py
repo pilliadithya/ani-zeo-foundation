@@ -124,35 +124,29 @@ class AIRouter:
 
     @classmethod
     def _output_budget(cls, history: list[dict]) -> int:
-        latest = cls._latest_user_text(history).lower()
-        deep_terms = (
-            'in detail', 'detailed', 'deep dive', 'comprehensive',
-            'full analysis', 'complete guide', 'step by step',
-            'step-by-step', 'research', 'elaborate', 'explain everything',
-            'full explanation', 'long answer',
-        )
-        learn_more_terms = (
-            'tell me more', 'more information', 'more details', 'go deeper',
-            'why', 'how did', 'how does', 'explain', 'break it down',
-            'inka cheppu', 'inka explain', 'konchem detail', 'detail ga',
-            'aur batao', 'thoda detail', 'konjam detail',
-        )
-        list_terms = ('top 10', 'top 5', 'list of', 'watch order', 'recommendations')
-        if ('big three' in latest or 'big 3' in latest or 'big-three' in latest):
-            return 650
-        if any(term in latest for term in deep_terms):
-            return 900
-        if any(term in latest for term in learn_more_terms):
-            return 420
-        if any(term in latest for term in list_terms):
-            return 500
-        # Short anime questions still need enough room for a complete answer.
-        anime_terms = r"\b(anime|manga|one piece|naruto|bleach|luffy|character|story|plot|premise|cheppu|gurunchi)\b"
-        if re.search(anime_terms, latest):
-            return 420
-        if len(latest.split()) <= 5:
-            return 180
-        return 360
+        """Estimate answer allowance from task complexity and recent context."""
+        latest = cls._latest_user_text(history).casefold()
+        context = " ".join(
+            str(item.get("content") or "")[:700]
+            for item in (history or [])[-5:]
+            if isinstance(item, dict)
+        ).casefold()
+        allowance = 520
+        if re.search(r"\b(why|how|analysis|compare|difference|explain|break down)\b", latest):
+            allowance += 220
+        if re.search(r"\b(detail|detailed|deep dive|comprehensive|complete guide|step by step|in depth|full explanation)\b", latest):
+            allowance += 420
+        if re.search(r"\b(top \d+|list|recommend|watch order|read order|all arcs|all seasons)\b", latest):
+            allowance += 300
+        if re.search(r"\b(news|latest|today|current|chapter|episode|release|update)\b", latest):
+            allowance += 180
+        if re.search(r"\b(big three|big 3)\b", latest):
+            allowance += 300
+        if re.search(r"\b(in telugu|in english|in hindi|translate|translation)\b", latest):
+            allowance += min(500, max(160, len(context) // 5))
+        if len(latest) > 500:
+            allowance += min(300, len(latest) // 8)
+        return min(1800, max(300, allowance))
 
     @staticmethod
     def estimate_tokens(text: str) -> int:

@@ -588,3 +588,7 @@ async def test_fast_provider_order_overrides_slow_environment_order():
 
     assert answer == "Fast Groq answer"
     assert provider == "groq"
+
+
+def test_short_anime_question_gets_complete_answer_token_budget():
+    assert AIRouter._output_budget([{"role": "user", "content": "Bro One Piece gurinchi cheppu"}]) >= 400

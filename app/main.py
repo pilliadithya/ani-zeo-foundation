@@ -301,6 +301,62 @@ def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
     return f'{emoji} {answer}'
 
 
+FORMAT_TITLES = {
+    "live_news": "📰 ANIME NEWS",
+    "anime_question": "🎌 ANIME GUIDE",
+    "character_question": "👤 CHARACTER DOSSIER",
+    "watch_order": "📺 WATCH / READ ORDER",
+    "recommendation": "✨ RECOMMENDATIONS",
+    "industry_question": "🎬 INDUSTRY INSIGHT",
+    "follow_up": "💬 CONTINUING THE DISCUSSION",
+}
+
+
+def enforce_response_format(answer: str, intent: str = "anime_question") -> str:
+    """Deterministic final presentation pass shared by every AI provider."""
+    raw = str(answer or "").strip()
+    if not raw:
+        return "I couldn't prepare a clear answer this time. Please try again."
+
+    # Normalise line endings, excessive whitespace and accidental repeated blank lines.
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"[ \t]+$", "", raw, flags=re.M)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    lines = raw.split("\n")
+
+    # Convert common model headings into a consistent, readable hierarchy.
+    normalised = []
+    for line in lines:
+        stripped = line.strip()
+        heading = re.match(r"^#{1,6}\s+(.+)$", stripped)
+        if heading:
+            normalised.append("**" + heading.group(1).strip("* ") + "**")
+        else:
+            normalised.append(stripped)
+    raw = "\n".join(normalised).strip()
+
+    # Structured editorial responses receive a compact title when the model omitted one.
+    if intent in FORMAT_TITLES:
+        first = next((line for line in raw.splitlines() if line.strip()), "")
+        has_title = bool(
+            first.startswith("**")
+            or first.startswith("📰")
+            or first.startswith("🎌")
+            or first.startswith("👤")
+            or first.startswith("📺")
+            or first.startswith("✨")
+            or first.startswith("🎬")
+            or first.startswith("💬")
+        )
+        if not has_title:
+            raw = f"**{FORMAT_TITLES[intent]}**\n\n{raw}"
+
+    # Enforce readable list spacing and prevent a wall of text on mobile.
+    raw = re.sub(r"(?m)(?<!\n)(\s*[•*-]\s+)", r"\n\1", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw).strip()
+    return raw
+
+
 def markdown_to_telegram_html(text: str) -> str:
     """Render headings, lists, tables and inline Markdown as Telegram HTML."""
     lines = text.splitlines()
@@ -719,6 +775,7 @@ async def chat_message(update: Update, context) -> None:
             except Exception as exc:
                 log.warning("Telegram anime cover send failed (%s)", type(exc).__name__)
 
+        answer = enforce_response_format(answer, intent_result['intent'])
         answer = apply_emoji_style(answer, intent_result['intent'])
         await send_formatted_answer(message, answer)
         if live_result and live_result.get("citations"):

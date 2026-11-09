@@ -208,7 +208,7 @@ def test_generated_answer_rejects_impossible_calendar_date():
         research,
     )
     assert result["ok"] is False
-    assert result["unsupported_dates"] == []
+    assert result["invalid_dates"] == ["February 30, 2026"]
 
 
 def test_valid_leap_day_is_normalized_and_checked():

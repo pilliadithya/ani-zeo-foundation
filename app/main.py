@@ -26,6 +26,8 @@ from app.config import get_settings
 from app.db import Database
 from app.handlers import (
     ai_usage_command,
+    handle_onboarding_name,
+    language_keyboard,
     consent_callback,
     delete_data_callback,
     delete_data_command,
@@ -432,9 +434,21 @@ async def chat_message(update: Update, context) -> None:
     db = context.application.bot_data["db"]
     profile = await db.get_profile(user.id)
 
+    # Complete the two short onboarding steps before normal chat handling.
+    if profile and profile.get("onboarding_step") == "awaiting_name":
+        if await handle_onboarding_name(update, context):
+            return
+
+    if profile and profile.get("onboarding_step") == "awaiting_language":
+        await message.reply_text(
+            "Choose the language you'd like Ani Zeo to use:",
+            reply_markup=language_keyboard(),
+        )
+        return
+
     if not profile or not profile.get("consented_at"):
         await message.reply_text(
-            "Please use /start and review the consent information first."
+            "Please use /start to read the welcome note and begin onboarding."
         )
         return
 

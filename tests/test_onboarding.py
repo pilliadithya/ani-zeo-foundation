@@ -35,3 +35,68 @@ def test_display_name_allows_user_selected_script():
 def test_display_name_rejects_empty_and_overlong_values():
     assert normalise_display_name("   ") is None
     assert normalise_display_name("x" * 41) is None
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from app.handlers import start, handle_onboarding_name
+
+
+class FakeOnboardingDatabase:
+    def __init__(self, profile):
+        self.profile = profile
+        self.saved_name = None
+        self.step = None
+        self.ensure_calls = []
+
+    async def ensure_profile(self, user_id, username=None, display_name=None):
+        self.ensure_calls.append((user_id, username, display_name))
+
+    async def get_profile(self, user_id):
+        return self.profile
+
+    async def set_display_name(self, user_id, display_name):
+        self.saved_name = (user_id, display_name)
+
+    async def set_onboarding_step(self, user_id, step):
+        self.step = (user_id, step)
+
+
+@pytest.mark.asyncio
+async def test_start_shows_creator_credit_and_disclaimer_in_one_welcome_note():
+    db = FakeOnboardingDatabase({"onboarding_step": "welcome"})
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    user = MagicMock(id=123, username="should_not_be_saved", first_name="Nakama")
+    update = MagicMock(effective_user=user, effective_message=message)
+    context = MagicMock()
+    context.application.bot_data = {"db": db}
+
+    await start(update, context)
+
+    welcome = message.reply_text.await_args.args[0]
+    assert "Anime Monarch" in welcome
+    assert "prototype" in welcome
+    assert "AI notice" in welcome
+    assert "Privacy" in welcome
+    assert "🇮🇳" not in welcome and "🇬🇧" not in welcome
+    assert message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "consent:yes"
+    assert db.ensure_calls == [(123, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_name_message_saves_only_the_user_chosen_name_and_moves_to_language():
+    db = FakeOnboardingDatabase({"onboarding_step": "awaiting_name"})
+    message = MagicMock(text="  Anime   Monarch  ")
+    message.reply_text = AsyncMock()
+    user = MagicMock(id=456)
+    update = MagicMock(effective_user=user, effective_message=message)
+    context = MagicMock()
+    context.application.bot_data = {"db": db}
+
+    handled = await handle_onboarding_name(update, context)
+
+    assert handled is True
+    assert db.saved_name == (456, "Anime Monarch")
+    assert db.step == (456, "awaiting_language")
+    assert message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "lang:tenglish"

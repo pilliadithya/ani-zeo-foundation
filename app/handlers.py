@@ -47,7 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
     db = context.application.bot_data["db"]
-    await db.ensure_profile(user.id, user.username, None)
+    await db.ensure_profile(user.id, None, None)
     profile = await db.get_profile(user.id) or {}
     step = profile.get("onboarding_step") or "welcome"
     if profile.get("consented_at") and profile.get("preferred_language") and step == "completed":

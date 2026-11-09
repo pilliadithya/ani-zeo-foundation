@@ -80,14 +80,13 @@ class Database:
             safe_label,
         )
 
-    async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None = None):
-        """Create the profile from Telegram identity without choosing the user's preferred name."""
+    async def ensure_profile(self, user_id: int, username: str | None = None, display_name: str | None = None):
+        """Create the minimum profile using only Telegram's required numeric account ID."""
         await self._pool().execute(
-            """insert into public.user_profiles (telegram_user_id, username)
-            values ($1,$2) on conflict (telegram_user_id) do update set
-            username=coalesce(excluded.username, public.user_profiles.username),
+            """insert into public.user_profiles (telegram_user_id)
+            values ($1) on conflict (telegram_user_id) do update set
             updated_at=now()""",
-            user_id, username,
+            user_id,
         )
 
     async def get_profile(self, user_id: int):

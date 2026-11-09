@@ -192,3 +192,36 @@ def test_historical_publication_year_can_support_query_relevance():
     }], "anime announcements from 2017")
     assert result["items"]
     assert result["items"][0]["published"] == "2017-06-12"
+
+
+def test_generated_answer_rejects_impossible_calendar_date():
+    research = {
+        "evidence": [{
+            "title": "One Piece chapter schedule",
+            "snippet": "Chapter 1197 is listed in the schedule.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "Chapter 1197 releases on February 30, 2026.",
+        research,
+    )
+    assert result["ok"] is False
+    assert result["unsupported_dates"] == []
+
+
+def test_valid_leap_day_is_normalized_and_checked():
+    research = {
+        "evidence": [{
+            "title": "Anime release schedule",
+            "snippet": "The event is scheduled for February 29, 2024.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "The event is scheduled for 2024-02-29.",
+        research,
+    )
+    assert result["ok"] is True

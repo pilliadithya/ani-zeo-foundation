@@ -11,7 +11,7 @@ def test_default_ai_fallback_prioritizes_fast_provider():
         webhook_secret="secret",
         database_url="postgresql://user:pass@localhost/db",
     )
-    assert settings.provider_order == ["groq", "gemini", "nvidia"]
+    assert settings.provider_order == ["nvidia", "groq", "gemini", "openrouter"]
 
 
 def test_search_provider_order_is_configurable_and_validated():

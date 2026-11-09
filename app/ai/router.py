@@ -78,7 +78,7 @@ class AIRouter:
     NVIDIA_RETRY_TIMEOUT = 8.0
 
     # Only one retry per provider request.
-    MAX_ATTEMPTS = 2
+    MAX_ATTEMPTS = 1
     FAST_PROVIDER_ORDER = ("groq", "gemini", "nvidia")
     MAX_PROVIDER_ATTEMPT_SECONDS = 5.0
 
@@ -145,9 +145,13 @@ class AIRouter:
             return 420
         if any(term in latest for term in list_terms):
             return 500
+        # Short anime questions still need enough room for a complete answer.
+        anime_terms = r"\b(anime|manga|one piece|naruto|bleach|luffy|character|story|plot|premise|cheppu|gurunchi)\b"
+        if re.search(anime_terms, latest):
+            return 420
         if len(latest.split()) <= 5:
-            return 180
-        return 280
+            return 220
+        return 360
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -408,8 +412,8 @@ class AIRouter:
             except Exception as exc:
                 elapsed = time.monotonic() - started
                 status = self._status_code(exc)
-                log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, elapsed=%.2fs)',
-                            name, attempt, type(exc).__name__, status, elapsed)
+                log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, detail=%s, elapsed=%.2fs)',
+                            name, attempt, type(exc).__name__, status, str(exc)[:180], elapsed)
                 if attempt >= self.MAX_ATTEMPTS or not self._is_retryable(exc):
                     raise
                 delay = self._retry_delay(exc, attempt)

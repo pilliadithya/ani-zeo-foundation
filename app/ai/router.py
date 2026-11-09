@@ -79,7 +79,7 @@ class AIRouter:
 
     # Only one retry per provider request.
     MAX_ATTEMPTS = 2
-    FAST_PROVIDER_ORDER = ("groq", "openrouter", "gemini", "nvidia")
+    FAST_PROVIDER_ORDER = ("groq", "gemini", "nvidia")
     MAX_PROVIDER_ATTEMPT_SECONDS = 5.0
 
     # Retry only temporary failures.

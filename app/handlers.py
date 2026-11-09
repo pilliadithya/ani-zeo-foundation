@@ -44,7 +44,7 @@ def greeting_for_language(language: str | None, display_name: str | None = None,
     preferred = (language or "english").strip().lower()
     options = greetings.get(preferred, greetings["english"])
     text = (user_text or "").strip().casefold()
-    if re.match(r"^(thanks|thank you|thx|cheers)\\b", text):
+    if re.match(r"^(thanks|thank you|thx|cheers)\b", text):
         replies = {
             "english": ["You're welcome! ✨ Ready whenever you are for another anime discovery."],
             "tenglish": ["Parledhu bro! ✨ Next anime adventure ki ready!"],
@@ -52,7 +52,7 @@ def greeting_for_language(language: str | None, display_name: str | None = None,
             "tanglish": ["Parava illa bro! ✨ Next anime adventure-ku ready!"],
         }
         options = replies.get(preferred, replies["english"])
-    elif re.match(r"^(bye|goodbye|see you|good night)\\b", text):
+    elif re.match(r"^(bye|goodbye|see you|good night)\b", text):
         replies = {
             "english": ["See you later, nakama! 👋 Your next anime adventure will be here."],
             "tenglish": ["Malli kaluddam bro! 👋 Next anime adventure kosam ready ga unta!"],

@@ -489,6 +489,7 @@ async def chat_message(update: Update, context) -> None:
             profile.get("preferred_language"),
             profile.get("display_name"),
             previous_greeting,
+            message.text,
         )
         await db.save_message(user.id, "user", message.text)
         await db.save_message(user.id, "assistant", greeting)

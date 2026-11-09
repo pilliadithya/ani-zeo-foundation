@@ -1,5 +1,5 @@
 import pytest
-from app.ai.router import AIRouter
+from app.ai.router import AIRouter, SYSTEM_PROMPT
 class FakeProvider:
     def __init__(self,name,key,response=None,error=None): self.name,self.api_key,self.response,self.error=name,key,response,error
     async def generate(self,messages,timeout,max_tokens):
@@ -521,3 +521,11 @@ def test_compact_system_prompt_reduces_planned_input_tokens():
         "english",
     )
     assert router.estimate_messages_tokens(messages) < 1_300
+
+
+def test_shared_personality_includes_intent_specific_editorial_formats():
+    assert "Anime news" in SYSTEM_PROMPT
+    assert "character dossier" in SYSTEM_PROMPT
+    assert "numbered guide" in SYSTEM_PROMPT
+    assert "curated list" in SYSTEM_PROMPT
+    assert "Casual chat" in SYSTEM_PROMPT

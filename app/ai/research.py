@@ -157,6 +157,12 @@ class AnimeResearchService:
                     lower,
                 )
                 or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
+                # Tenglish follow-ups commonly use "ante" (= "means/what is meant by")
+                # or ask for an explanation with short Telugu transliteration.
+                or re.search(
+                    r"\\b(ante|meaning enti|meaning cheppu|artham enti|enduku|ela|evaru|cheppu|cheppava|explain|elaborate)\\b",
+                    lower,
+                )
             )
         ) or language_followup
         anime_scope = explicit_anime_scope or followup_candidate or telugu_anime

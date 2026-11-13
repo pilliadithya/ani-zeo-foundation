@@ -103,10 +103,16 @@ class Provider:
                     selected_model = model
                     account_succeeded = True
                     if key_index:
-                        log.info("Gemini secondary account succeeded account_position=%s", key_index + 1)
+                        log.info("%s secondary account succeeded account_position=%s", self.name, key_index + 1)
                     if model_index:
                         log.info("Gemini model fallback succeeded model=%s fallback_position=%s", model, model_index)
                     break
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    last_error = exc
+                    if self.name in {"gemini", "groq"} and key_index < len(keys) - 1:
+                        log.warning("%s account network failure (%s); trying secondary configured account", self.name, type(exc).__name__)
+                        break
+                    raise
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
                     status = exc.response.status_code

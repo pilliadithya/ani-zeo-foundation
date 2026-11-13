@@ -722,3 +722,56 @@ async def test_single_account_provider_keeps_single_timeout_window():
             [{"role": "user", "content": "Explain Naruto"}],
             100,
         )
+
+
+
+@pytest.mark.asyncio
+async def test_secondary_account_gets_full_timeout_window_plus_bounded_grace():
+    class SlowSecondaryProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ("secondary",)
+        model = "test-model"
+
+        async def generate(self, messages, timeout, max_tokens):
+            # Simulate account 1 consuming its full window, then account 2
+            # returning just after the nominal sum of both windows.
+            assert timeout == pytest.approx(0.08)
+            await asyncio.sleep(0.17)
+            return "secondary account response"
+
+    settings = FakeSettings()
+    settings.ai_timeout_seconds = 0.08
+    router = AIRouter(settings)
+    provider = SlowSecondaryProvider()
+    result = await router._call_provider(
+        "gemini",
+        provider,
+        [{"role": "user", "content": "test"}],
+        100,
+        deadline=asyncio.get_running_loop().time() + 3.0,
+    )
+    assert result["text"] == "secondary account response"
+
+
+@pytest.mark.asyncio
+async def test_provider_failover_grace_never_overrides_shared_deadline():
+    class HangingProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ("secondary",)
+        model = "test-model"
+
+        async def generate(self, messages, timeout, max_tokens):
+            await asyncio.sleep(1.0)
+            return "too late"
+
+    router = AIRouter(FakeSettings())
+    with pytest.raises(asyncio.TimeoutError):
+        await router._call_provider(
+            "gemini",
+            HangingProvider(),
+            [{"role": "user", "content": "test"}],
+            100,
+            deadline=time.monotonic() + 0.08,
+        )

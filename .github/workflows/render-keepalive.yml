@@ -2,8 +2,11 @@ name: Render keep-alive
 
 on:
   schedule:
-    # Offset from the top of the hour to reduce GitHub Actions queue delays.
+    # Three staggered 5-minute schedules create a target ping about every 2 minutes.
+    # This gives later scheduled runs a chance to reach Render if one run is delayed.
+    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 * * * *"
     - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,29 +19,14 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Send two sequential health checks to Ani Zeo
+      - name: Send lightweight health check to Ani Zeo
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           url="https://ani-zeo-foundation.onrender.com/"
-          successful_checks=0
-
-          for check in 1 2; do
-            echo "Keep-alive request ${check}/2"
-            if response="$(curl --fail --silent --show-error --max-time 100 "${url}")" &&
-              printf '%s' "${response}" | grep -Eq '"service"[[:space:]]*:[[:space:]]*"ani-zeo"'; then
-              echo "Request ${check}/2: Ani Zeo health endpoint verified."
-              successful_checks=$((successful_checks + 1))
-            else
-              echo "Request ${check}/2 did not return the expected health payload."
-            fi
-          done
-
-          echo "Successful health checks: ${successful_checks}/2"
-          if [ "${successful_checks}" -eq 0 ]; then
-            echo "Both keep-alive requests failed."
-            exit 1
-          fi
-          echo "At least one Ani Zeo health check succeeded."
+          echo "Checking Ani Zeo health endpoint..."
+          response="$(curl --fail --silent --show-error --max-time 100 "${url}")"
+          printf '%s' "${response}" | grep -Eq '"service"[[:space:]]*:[[:space:]]*"ani-zeo"'
+          echo "Ani Zeo health endpoint verified."

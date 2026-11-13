@@ -749,7 +749,7 @@ async def test_secondary_account_gets_full_timeout_window_plus_bounded_grace():
         provider,
         [{"role": "user", "content": "test"}],
         100,
-        deadline=asyncio.get_running_loop().time() + 3.0,
+        deadline=time.monotonic() + 3.0,
     )
     assert result["text"] == "secondary account response"
 

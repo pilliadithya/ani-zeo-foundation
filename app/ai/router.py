@@ -82,7 +82,7 @@ keys, tokens, payment credentials or sensitive information.
 class AIRouter:
     MAX_REQUEST_CHARS = 10_000
     HISTORY_BUDGET_CHARS = 2_600
-    MAX_HISTORY_MESSAGES = 8
+    MAX_HISTORY_MESSAGES = 14
     SUMMARY_MAX_CHARS = 1_200
 
     # Provider-specific timeouts.

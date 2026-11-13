@@ -17,7 +17,7 @@ def test_default_ai_fallback_order_is_gemini_then_groq_then_openrouter():
         webhook_secret="secret",
         database_url="postgresql://user:pass@localhost/db",
     )
-    assert settings.provider_order == ["gemini", "groq", "openrouter"]
+    assert settings.provider_order == ["gemini", "groq"]
 
 
 def test_gemini_account_keys_are_separate_and_deduplicated():

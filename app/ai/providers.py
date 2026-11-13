@@ -109,7 +109,6 @@ class Provider:
                             f"{self.base_url}/chat/completions",
                             headers=headers,
                             json=payload,
-                            timeout=request_timeout,
                         )
                         response.raise_for_status()
                         data = response.json()

@@ -14,6 +14,7 @@ class Provider:
     model: str
     base_url: str
     fallback_models: tuple[str, ...] = field(default_factory=tuple)
+    fallback_api_keys: tuple[str, ...] = field(default_factory=tuple)
 
     @staticmethod
     def _usage_value(usage: dict[str, Any], *keys: str) -> int | None:
@@ -29,13 +30,9 @@ class Provider:
         usage = data.get("usage")
         if not isinstance(usage, dict):
             return {
-                "input_tokens": None,
-                "output_tokens": None,
-                "total_tokens": None,
-                "cached_input_tokens": None,
-                "thinking_tokens": None,
-                "tool_tokens": None,
-                "raw_usage": None,
+                "input_tokens": None, "output_tokens": None, "total_tokens": None,
+                "cached_input_tokens": None, "thinking_tokens": None,
+                "tool_tokens": None, "raw_usage": None,
             }
 
         prompt_details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
@@ -52,37 +49,22 @@ class Provider:
             total_tokens = input_tokens + output_tokens
 
         return {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
             "total_tokens": total_tokens,
-            "cached_input_tokens": cls._usage_value(
-                prompt_details, "cached_tokens", "cache_read_input_tokens"
-            ),
-            "thinking_tokens": cls._usage_value(
-                completion_details, "reasoning_tokens", "thinking_tokens"
-            ),
+            "cached_input_tokens": cls._usage_value(prompt_details, "cached_tokens", "cache_read_input_tokens"),
+            "thinking_tokens": cls._usage_value(completion_details, "reasoning_tokens", "thinking_tokens"),
             "tool_tokens": cls._usage_value(usage, "tool_use_prompt_tokens", "toolUsePromptTokenCount"),
             "raw_usage": usage,
         }
 
-    async def generate(
-        self,
-        messages: list[dict],
-        timeout: float,
-        max_tokens: int
-    ) -> dict[str, Any]:
-
-        if not self.api_key:
+    async def generate(self, messages: list[dict], timeout: float, max_tokens: int) -> dict[str, Any]:
+        keys = [self.api_key]
+        if self.name == "gemini":
+            keys.extend(key for key in self.fallback_api_keys if key and key not in keys)
+        if not any(keys):
             raise RuntimeError(f"{self.name} API key is not configured")
         if not self.model:
             raise RuntimeError(f"{self.name} model is not configured")
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        if self.name == "openrouter":
-            headers["X-Title"] = "Ani Zeo"
 
         models = [self.model]
         if self.name == "gemini":
@@ -90,41 +72,61 @@ class Provider:
 
         data = None
         selected_model = None
-        for index, model in enumerate(models):
-            payload = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-            }
-            # Gemini 3 models reject legacy sampling parameters such as temperature.
-            if not (self.name == "gemini" and model.startswith("gemini-3")):
-                payload["temperature"] = 0.7
+        last_error = None
 
-            try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                selected_model = model
-                if index:
-                    log.info("Gemini model fallback succeeded model=%s fallback_position=%s", model, index)
+        # Gemini account 1 is exhausted/invalid before trying account 2.
+        # Each account gets the configured model fallback sequence. No quota bypass:
+        # keys must belong to separately configured projects/accounts and obey their limits.
+        for key_index, api_key in enumerate(keys):
+            if not api_key:
+                continue
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            if self.name == "openrouter":
+                headers["X-Title"] = "Ani Zeo"
+
+            account_succeeded = False
+            for model_index, model in enumerate(models):
+                payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+                # Gemini 3 models reject legacy sampling parameters such as temperature.
+                if not (self.name == "gemini" and model.startswith("gemini-3")):
+                    payload["temperature"] = 0.7
+
+                try:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(
+                            f"{self.base_url}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                    selected_model = model
+                    account_succeeded = True
+                    if key_index:
+                        log.info("Gemini secondary account succeeded account_position=%s", key_index + 1)
+                    if model_index:
+                        log.info("Gemini model fallback succeeded model=%s fallback_position=%s", model, model_index)
+                    break
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    status = exc.response.status_code
+                    if self.name == "gemini" and status in {429, 503} and model_index < len(models) - 1:
+                        log.warning("Gemini model rate-limited/unavailable model=%s status=%s; trying configured model fallback", model, status)
+                        continue
+                    if self.name == "gemini" and status in {401, 403, 429, 503} and key_index < len(keys) - 1:
+                        log.warning("Gemini account unavailable status=%s; trying secondary configured account", status)
+                        break
+                    raise
+            if account_succeeded:
                 break
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if self.name == "gemini" and status in {429, 503} and index < len(models) - 1:
-                    log.warning(
-                        "Gemini model unavailable/rate-limited model=%s status=%s; trying next configured model",
-                        model, status,
-                    )
-                    continue
-                raise
+            if self.name != "gemini" or key_index >= len(keys) - 1:
+                if last_error:
+                    raise last_error
 
         if data is None or selected_model is None:
-            raise RuntimeError(f"{self.name} exhausted its configured model list")
+            if last_error:
+                raise last_error
+            raise RuntimeError(f"{self.name} exhausted its configured credential/model list")
 
         try:
             choices = data.get("choices")
@@ -171,23 +173,18 @@ def build_providers(settings):
             settings.gemini_model,
             "https://generativelanguage.googleapis.com/v1beta/openai",
             tuple(getattr(settings, "gemini_fallback_model_list", [])),
+            tuple(getattr(settings, "gemini_api_key_list", [])[1:]),
         ),
         "groq": Provider(
-            "groq",
-            settings.groq_api_key,
-            settings.groq_model,
+            "groq", settings.groq_api_key, settings.groq_model,
             "https://api.groq.com/openai/v1",
         ),
         "nvidia": Provider(
-            "nvidia",
-            settings.nvidia_api_key,
-            settings.nvidia_model,
+            "nvidia", settings.nvidia_api_key, settings.nvidia_model,
             "https://integrate.api.nvidia.com/v1",
         ),
         "openrouter": Provider(
-            "openrouter",
-            settings.openrouter_api_key,
-            settings.openrouter_model,
+            "openrouter", settings.openrouter_api_key, settings.openrouter_model,
             "https://openrouter.ai/api/v1",
         ),
     }

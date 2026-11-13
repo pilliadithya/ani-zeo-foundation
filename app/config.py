@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     search_provider_order: str = "decodo,langsearch,tavily"
     decodo_geo: str = "IN"
     groq_api_key: str = ""
+    groq_api_key_2: str = ""
+
+    @property
+    def groq_api_key_list(self) -> list[str]:
+        return list(dict.fromkeys(key.strip() for key in (self.groq_api_key, self.groq_api_key_2) if key.strip()))
     groq_model: str = "openai/gpt-oss-120b"
     nvidia_api_key: str = ""
     nvidia_model: str = "nvidia/llama-3.3-nemotron-super-49b-v1"

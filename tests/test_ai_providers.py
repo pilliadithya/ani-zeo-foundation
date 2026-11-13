@@ -96,3 +96,59 @@ async def test_gemini_uses_second_account_after_primary_account_rate_limit(monke
 
     assert result["text"] == "Gemini secondary account answer"
     assert calls == ["Bearer primary-secret", "Bearer secondary-secret"]
+
+
+@pytest.mark.asyncio
+async def test_groq_uses_second_account_after_primary_account_rate_limit(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "https://example.test/chat/completions")
+                response = httpx.Response(self.status_code, request=request)
+                raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers, json):
+            calls.append(headers["Authorization"])
+            if len(calls) == 1:
+                return FakeResponse(429, {})
+            return FakeResponse(200, {
+                "model": "groq-test",
+                "choices": [{"message": {"content": "Groq secondary account answer"}, "finish_reason": "stop"}],
+            })
+
+    monkeypatch.setattr("app.ai.providers.httpx.AsyncClient", FakeClient)
+    provider = Provider(
+        name="groq",
+        api_key="groq-primary-secret",
+        model="groq-test",
+        base_url="https://example.test",
+        fallback_api_keys=("groq-secondary-secret",),
+    )
+
+    result = await provider.generate(
+        [{"role": "user", "content": "anime question"}],
+        timeout=2,
+        max_tokens=100,
+    )
+
+    assert result["text"] == "Groq secondary account answer"
+    assert calls == ["Bearer groq-primary-secret", "Bearer groq-secondary-secret"]

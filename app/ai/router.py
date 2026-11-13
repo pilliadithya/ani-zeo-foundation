@@ -415,7 +415,13 @@ class AIRouter:
             configured_keys = [getattr(provider, "api_key", "")]
             configured_keys.extend(getattr(provider, "fallback_api_keys", ()) or ())
             account_count = max(1, len([key for key in configured_keys if key]))
-            call_timeout = timeout * account_count
+            # Each credential has its own provider-side timeout window. The
+            # outer wait_for must also allow the final HTTP timeout to propagate
+            # through httpx and the provider's credential loop. Without this
+            # bounded grace, wait_for cancels account 2 at the exact boundary
+            # (e.g. 14s for two 7s accounts), before it can return its timeout.
+            # Keep this grace small and always cap it by the shared request deadline.
+            call_timeout = timeout * account_count + min(1.5, 0.75 * account_count)
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0.05:

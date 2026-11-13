@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 import logging
 import time
@@ -105,10 +106,17 @@ class Provider:
 
                 try:
                     async with httpx.AsyncClient(timeout=request_timeout) as client:
-                        response = await client.post(
-                            f"{self.base_url}/chat/completions",
-                            headers=headers,
-                            json=payload,
+                        # httpx timeouts are phase-based (connect/read/write/pool),
+                        # not a strict wall-clock deadline. A slow trickling response
+                        # can therefore outlive the account window. Enforce the
+                        # remaining account budget around the complete request too.
+                        response = await asyncio.wait_for(
+                            client.post(
+                                f"{self.base_url}/chat/completions",
+                                headers=headers,
+                                json=payload,
+                            ),
+                            timeout=request_timeout,
                         )
                         response.raise_for_status()
                         data = response.json()
@@ -119,7 +127,7 @@ class Provider:
                     if model_index:
                         log.info("Gemini model fallback succeeded model=%s fallback_position=%s", model, model_index)
                     break
-                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError) as exc:
                     last_error = exc
                     if self.name in {"gemini", "groq"} and key_index < len(keys) - 1:
                         log.warning("%s account network failure account_position=%s (%s); trying secondary configured account",

@@ -722,3 +722,106 @@ async def test_single_account_provider_keeps_single_timeout_window():
             [{"role": "user", "content": "Explain Naruto"}],
             100,
         )
+
+
+
+@pytest.mark.asyncio
+async def test_secondary_account_gets_full_timeout_window_plus_bounded_grace():
+    class SlowSecondaryProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ("secondary",)
+        model = "test-model"
+
+        async def generate(self, messages, timeout, max_tokens):
+            # Simulate account 1 consuming its full window, then account 2
+            # returning just after the nominal sum of both windows.
+            assert timeout == pytest.approx(0.08)
+            await asyncio.sleep(0.17)
+            return "secondary account response"
+
+    settings = FakeSettings()
+    settings.ai_timeout_seconds = 0.08
+    router = AIRouter(settings)
+    provider = SlowSecondaryProvider()
+    result = await router._call_provider(
+        "gemini",
+        provider,
+        [{"role": "user", "content": "test"}],
+        100,
+        deadline=time.monotonic() + 3.0,
+    )
+    assert result["text"] == "secondary account response"
+
+
+@pytest.mark.asyncio
+async def test_provider_failover_grace_never_overrides_shared_deadline():
+    class HangingProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ("secondary",)
+        model = "test-model"
+
+        async def generate(self, messages, timeout, max_tokens):
+            await asyncio.sleep(1.0)
+            return "too late"
+
+    router = AIRouter(FakeSettings())
+    with pytest.raises(asyncio.TimeoutError):
+        await router._call_provider(
+            "gemini",
+            HangingProvider(),
+            [{"role": "user", "content": "test"}],
+            100,
+            deadline=time.monotonic() + 0.08,
+        )
+
+
+
+@pytest.mark.asyncio
+async def test_provider_hard_account_deadline_advances_to_secondary_key(monkeypatch):
+    from app.ai.providers import Provider
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{
+                    "message": {"content": "secondary account worked"},
+                    "finish_reason": "stop",
+                }],
+                "model": "test-model",
+                "usage": {},
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            if headers["Authorization"] == "Bearer primary":
+                await asyncio.sleep(0.2)
+            return FakeResponse()
+
+    monkeypatch.setattr("app.ai.providers.httpx.AsyncClient", FakeClient)
+    provider = Provider(
+        name="gemini",
+        api_key="primary",
+        model="test-model",
+        base_url="https://provider.example/v1",
+        fallback_api_keys=("secondary",),
+    )
+    result = await provider.generate(
+        [{"role": "user", "content": "test"}],
+        timeout=0.1,
+        max_tokens=100,
+    )
+    assert result["text"] == "secondary account worked"

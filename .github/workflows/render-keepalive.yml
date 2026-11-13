@@ -1,0 +1,39 @@
+name: Render keep-alive
+
+on:
+  schedule:
+    # Offset from the top of the hour to reduce GitHub Actions queue delays.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ani-zeo-render-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wake and verify Ani Zeo
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://ani-zeo-foundation.onrender.com/"
+          for attempt in 1 2; do
+            echo "Health check attempt ${attempt}/2"
+            if response="$(curl --fail --silent --show-error --max-time 100 "${url}")" &&
+              printf '%s' "${response}" | grep -Eq '"service"[[:space:]]*:[[:space:]]*"ani-zeo"'; then
+              echo "Ani Zeo health endpoint responded successfully."
+              exit 0
+            fi
+            if [ "${attempt}" -lt 2 ]; then
+              echo "Health check did not return the Ani Zeo health payload; retrying in 5 seconds."
+              sleep 5
+            fi
+          done
+          echo "Ani Zeo did not return the expected health payload."
+          exit 1

@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from app.ai.providers import Provider
+from app.ai.research import AnimeResearchService
 
 
 def test_normalize_openai_compatible_usage():
@@ -152,3 +153,51 @@ async def test_groq_uses_second_account_after_primary_account_rate_limit(monkeyp
 
     assert result["text"] == "Groq secondary account answer"
     assert calls == ["Bearer groq-primary-secret", "Bearer groq-secondary-secret"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_grounded_search_uses_second_account_after_primary_429(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "https://example.test/generateContent")
+                response = httpx.Response(self.status_code, request=request)
+                raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers, json):
+            calls.append(headers["x-goog-api-key"])
+            if len(calls) == 1:
+                return FakeResponse(429)
+            # An intentionally incomplete payload is enough to test credential
+            # selection; answer parsing safely returns None afterwards.
+            return FakeResponse(200, {})
+
+    monkeypatch.setattr("app.ai.research.httpx.AsyncClient", FakeClient)
+    research = AnimeResearchService(
+        api_key="gemini-primary",
+        model="gemini-test",
+        fallback_api_keys=["gemini-secondary"],
+    )
+    result = await research.google_grounded_answer("latest One Piece chapter", "english")
+
+    assert result is None
+    assert calls == ["gemini-primary", "gemini-secondary"]

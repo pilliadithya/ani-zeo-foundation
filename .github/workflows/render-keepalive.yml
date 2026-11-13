@@ -18,22 +18,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Wake and verify Ani Zeo
+      - name: Send two sequential health checks to Ani Zeo
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           url="https://ani-zeo-foundation.onrender.com/"
-          for attempt in 1 2; do
-            echo "Health check attempt ${attempt}/2"
+          successful_checks=0
+
+          for check in 1 2; do
+            echo "Keep-alive request ${check}/2"
             if response="$(curl --fail --silent --show-error --max-time 100 "${url}")" &&
               printf '%s' "${response}" | grep -Eq '"service"[[:space:]]*:[[:space:]]*"ani-zeo"'; then
-              echo "Ani Zeo health endpoint responded successfully."
-              exit 0
-            fi
-            if [ "${attempt}" -lt 2 ]; then
-              echo "Health check did not return the Ani Zeo health payload; retrying in 5 seconds."
-              sleep 5
+              echo "Request ${check}/2: Ani Zeo health endpoint verified."
+              successful_checks=$((successful_checks + 1))
+            else
+              echo "Request ${check}/2 did not return the expected health payload."
             fi
           done
-          echo "Ani Zeo did not return the expected health payload."
-          exit 1
+
+          echo "Successful health checks: ${successful_checks}/2"
+          if [ "${successful_checks}" -eq 0 ]; then
+            echo "Both keep-alive requests failed."
+            exit 1
+          fi
+          echo "At least one Ani Zeo health check succeeded."

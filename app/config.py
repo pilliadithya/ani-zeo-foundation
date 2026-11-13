@@ -41,7 +41,10 @@ class Settings(BaseSettings):
 
     @property
     def provider_order(self) -> list[str]:
-        return [p.strip().lower() for p in self.ai_provider_order.split(",") if p.strip()]
+        configured = {p.strip().lower() for p in self.ai_provider_order.split(",") if p.strip()}
+        # Active production route is deliberately Gemini -> Groq. NVIDIA and
+        # OpenRouter remain dormant until explicitly reintroduced and validated.
+        return [provider for provider in ("gemini", "groq") if provider in configured]
 
     @property
     def gemini_fallback_model_list(self) -> list[str]:

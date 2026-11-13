@@ -438,6 +438,26 @@ def test_intent_detector_understands_anime_follow_up_from_context():
     assert detected["scope"] == "anime"
 
 
+def test_intent_detector_understands_tenglish_ante_followup_from_naruto_context():
+    history = [
+        {"role": "user", "content": "Bro okkasari 4 hokages yevaru reanimate chestaru naruto lo"},
+        {"role": "assistant", "content": "Orochimaru used Edo Tensei to reanimate the first three Hokages."},
+    ]
+    detected = AnimeResearchService.detect_intent("Edo tensei ante", history)
+    assert detected["intent"] == "follow_up"
+    assert detected["scope"] == "anime"
+
+
+def test_intent_detector_understands_tenglish_explanation_followup():
+    history = [
+        {"role": "user", "content": "Tell me about Naruto"},
+        {"role": "assistant", "content": "Naruto is a shinobi from Konoha."},
+    ]
+    detected = AnimeResearchService.detect_intent("Ante enti?", history)
+    assert detected["intent"] == "follow_up"
+    assert detected["scope"] == "anime"
+
+
 def test_intent_detector_keeps_unknown_names_unchanged():
     original = "Tell me about Xyzzq Anime"
     assert AnimeResearchService.correct_typos(original) == original

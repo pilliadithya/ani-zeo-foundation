@@ -59,7 +59,7 @@ class Provider:
 
     async def generate(self, messages: list[dict], timeout: float, max_tokens: int) -> dict[str, Any]:
         keys = [self.api_key]
-        if self.name == "gemini":
+        if self.name in {"gemini", "groq"}:
             keys.extend(key for key in self.fallback_api_keys if key and key not in keys)
         if not any(keys):
             raise RuntimeError(f"{self.name} API key is not configured")
@@ -113,7 +113,7 @@ class Provider:
                     if self.name == "gemini" and status in {429, 503} and model_index < len(models) - 1:
                         log.warning("Gemini model rate-limited/unavailable model=%s status=%s; trying configured model fallback", model, status)
                         continue
-                    if self.name == "gemini" and status in {401, 403, 429, 503} and key_index < len(keys) - 1:
+                    if self.name in {"gemini", "groq"} and status in {401, 403, 429, 503} and key_index < len(keys) - 1:
                         log.warning("Gemini account unavailable status=%s; trying secondary configured account", status)
                         break
                     raise
@@ -178,6 +178,7 @@ def build_providers(settings):
         "groq": Provider(
             "groq", settings.groq_api_key, settings.groq_model,
             "https://api.groq.com/openai/v1",
+            fallback_api_keys=tuple(getattr(settings, "groq_api_key_list", [])[1:]),
         ),
         "nvidia": Provider(
             "nvidia", settings.nvidia_api_key, settings.nvidia_model,

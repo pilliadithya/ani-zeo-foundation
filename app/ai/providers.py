@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -85,18 +86,30 @@ class Provider:
                 headers["X-Title"] = "Ani Zeo"
 
             account_succeeded = False
+            # Give each configured account its own bounded window. Model fallbacks
+            # share that account window so they cannot starve the next credential.
+            account_deadline = time.monotonic() + max(0.1, float(timeout))
+            log.info("%s account attempt account_position=%s model=%s",
+                     self.name, key_index + 1, models[0])
             for model_index, model in enumerate(models):
+                remaining_account = account_deadline - time.monotonic()
+                if remaining_account <= 0.05:
+                    log.warning("%s account window exhausted account_position=%s",
+                                self.name, key_index + 1)
+                    break
+                request_timeout = min(float(timeout), remaining_account)
                 payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
                 # Gemini 3 models reject legacy sampling parameters such as temperature.
                 if not (self.name == "gemini" and model.startswith("gemini-3")):
                     payload["temperature"] = 0.7
 
                 try:
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with httpx.AsyncClient(timeout=request_timeout) as client:
                         response = await client.post(
                             f"{self.base_url}/chat/completions",
                             headers=headers,
                             json=payload,
+                            timeout=request_timeout,
                         )
                         response.raise_for_status()
                         data = response.json()
@@ -110,7 +123,8 @@ class Provider:
                 except (httpx.TimeoutException, httpx.NetworkError) as exc:
                     last_error = exc
                     if self.name in {"gemini", "groq"} and key_index < len(keys) - 1:
-                        log.warning("%s account network failure (%s); trying secondary configured account", self.name, type(exc).__name__)
+                        log.warning("%s account network failure account_position=%s (%s); trying secondary configured account",
+                                    self.name, key_index + 1, type(exc).__name__)
                         break
                     raise
                 except httpx.HTTPStatusError as exc:
@@ -119,8 +133,9 @@ class Provider:
                     if self.name == "gemini" and status in {429, 503} and model_index < len(models) - 1:
                         log.warning("Gemini model rate-limited/unavailable model=%s status=%s; trying configured model fallback", model, status)
                         continue
-                    if self.name in {"gemini", "groq"} and status in {401, 403, 429, 503} and key_index < len(keys) - 1:
-                        log.warning("%s account unavailable status=%s; trying secondary configured account", self.name, status)
+                    if self.name in {"gemini", "groq"} and status in {401, 403, 429, 500, 502, 503, 504} and key_index < len(keys) - 1:
+                        log.warning("%s account unavailable account_position=%s status=%s; trying secondary configured account",
+                                    self.name, key_index + 1, status)
                         break
                     raise
             if account_succeeded:

@@ -1,6 +1,7 @@
 import pytest
 
 from app.ai.router import AIRouter
+from app.ai.research import AnimeResearchService
 
 
 class Settings:
@@ -82,3 +83,25 @@ def test_provider_timeouts_leave_room_for_fallbacks():
     assert router._provider_timeout("groq", 1) == 7.0
     assert router._provider_timeout("gemini", 1) == 7.0
     assert router._provider_timeout("openrouter", 1) == 7.0
+
+
+def test_one_piece_op_abbreviation_resolves_from_recent_context():
+    history = [
+        {"role": "user", "content": "Tell me about One Piece"},
+        {"role": "assistant", "content": "One Piece is a manga by Eiichiro Oda."},
+    ]
+    result = AnimeResearchService.detect_intent("Tell me about the latest OP chapter", history)
+    assert result["scope"] == "anime"
+    assert "One Piece" in result["normalized_text"]
+
+
+def test_telugu_pronoun_followup_keeps_one_piece_context():
+    history = [
+        {"role": "user", "content": "Tell me about One Piece"},
+        {"role": "assistant", "content": "One Piece story includes Loki, the prince of Elbaf."},
+    ]
+    result = AnimeResearchService.detect_intent(
+        "Loki antaga athani gurinchi cheppu", history
+    )
+    assert result["scope"] == "anime"
+    assert result["intent"] == "follow_up"

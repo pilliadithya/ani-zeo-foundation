@@ -410,11 +410,23 @@ class AIRouter:
                 if remaining <= 0.05:
                     raise asyncio.TimeoutError("AI response time budget exhausted")
                 timeout = min(timeout, remaining)
+            # Provider.generate owns sequential credential failover. Its timeout
+            # is per account; the router must allow one bounded window per key.
+            configured_keys = [getattr(provider, "api_key", "")]
+            configured_keys.extend(getattr(provider, "fallback_api_keys", ()) or ())
+            account_count = max(1, len([key for key in configured_keys if key]))
+            call_timeout = timeout * account_count
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.05:
+                    raise asyncio.TimeoutError("AI response time budget exhausted")
+                call_timeout = min(call_timeout, remaining)
+                timeout = min(timeout, remaining)
             started = time.monotonic()
             try:
                 raw_result = await asyncio.wait_for(
                     provider.generate(messages, timeout, output_tokens),
-                    timeout=timeout,
+                    timeout=call_timeout,
                 )
                 try:
                     result = self._normalize_provider_result(raw_result, name)

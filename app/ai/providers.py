@@ -114,12 +114,12 @@ class Provider:
                         log.warning("Gemini model rate-limited/unavailable model=%s status=%s; trying configured model fallback", model, status)
                         continue
                     if self.name in {"gemini", "groq"} and status in {401, 403, 429, 503} and key_index < len(keys) - 1:
-                        log.warning("Gemini account unavailable status=%s; trying secondary configured account", status)
+                        log.warning("%s account unavailable status=%s; trying secondary configured account", self.name, status)
                         break
                     raise
             if account_succeeded:
                 break
-            if self.name != "gemini" or key_index >= len(keys) - 1:
+            if self.name not in {"gemini", "groq"} or key_index >= len(keys) - 1:
                 if last_error:
                     raise last_error
 

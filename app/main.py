@@ -533,7 +533,7 @@ async def chat_message(update: Update, context) -> None:
         return
 
     research = context.application.bot_data["research"]
-    recent_for_scope = await db.get_recent_messages(user.id, limit=6)
+    recent_for_scope = await db.get_recent_messages(user.id, limit=12)
     intent_result = research.detect_intent(message.text, recent_for_scope)
     scope = intent_result["scope"]
     normalized_text = intent_result["normalized_text"]
@@ -595,7 +595,7 @@ async def chat_message(update: Update, context) -> None:
                     # Migrate an older plain-text memory value safely.
                     summary_text = str(memory_record)[:1500]
 
-        history = await db.get_recent_messages(user.id, limit=8)
+        history = await db.get_recent_messages(user.id, limit=16)
 
         live_result = None
         is_historical_request = research._is_historical_query(normalized_text)
@@ -703,7 +703,7 @@ async def chat_message(update: Update, context) -> None:
                     + f"User query: {normalized_text}"
                 ),
                 provider_order=(
-                    ["nvidia", "groq", "openrouter", "gemini"]
+                    ["gemini", "groq"]
                     if live_result.get("provider") == "tavily"
                     else None
                 ),

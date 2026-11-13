@@ -32,8 +32,12 @@ class AnimeResearchService:
         langsearch_api_key="",
         search_provider_order=None,
         decodo_geo="IN",
+        fallback_api_keys=None,
     ):
         self.api_key, self.model = api_key, model
+        self.fallback_api_keys = tuple(
+            key for key in (fallback_api_keys or []) if key and key != api_key
+        )
         self.tavily_api_key = tavily_api_key
         self.decodo_api_key = decodo_api_key
         self.langsearch_api_key = langsearch_api_key
@@ -375,12 +379,35 @@ class AnimeResearchService:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         try:
             request_started = time.monotonic()
-            async with httpx.AsyncClient(timeout=5) as client:
-                res = await client.post(url, headers={"x-goog-api-key": self.api_key}, json={
-                    "contents":[{"role":"user","parts":[{"text":prompt}]}],
-                    "tools":[{"google_search":{}}],
-                    "generationConfig":{"maxOutputTokens":research_output_budget}})
-                res.raise_for_status(); payload = res.json()
+            api_keys = [key for key in (self.api_key, *self.fallback_api_keys) if key]
+            if not api_keys:
+                return None
+            payload = None
+            for key_index, api_key in enumerate(api_keys):
+                try:
+                    async with httpx.AsyncClient(timeout=5) as client:
+                        res = await client.post(url, headers={"x-goog-api-key": api_key}, json={
+                            "contents":[{"role":"user","parts":[{"text":prompt}]}],
+                            "tools":[{"google_search":{}}],
+                            "generationConfig":{"maxOutputTokens":research_output_budget}})
+                        res.raise_for_status()
+                        payload = res.json()
+                    if key_index:
+                        log.info("Gemini grounded-search secondary account succeeded account_position=%s", key_index + 1)
+                    break
+                except httpx.HTTPStatusError as account_exc:
+                    status = account_exc.response.status_code
+                    if status in {401, 403, 429, 503} and key_index < len(api_keys) - 1:
+                        log.warning("Gemini grounded-search account unavailable status=%s; trying secondary configured account", status)
+                        continue
+                    raise
+                except (httpx.TimeoutException, httpx.NetworkError) as account_exc:
+                    if key_index < len(api_keys) - 1:
+                        log.warning("Gemini grounded-search account network failure (%s); trying secondary configured account", type(account_exc).__name__)
+                        continue
+                    raise
+            if payload is None:
+                return None
             usage_meta = payload.get("usageMetadata") or {}
             usage = {
                 "input_tokens": usage_meta.get("promptTokenCount"),

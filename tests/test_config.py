@@ -6,12 +6,12 @@ def test_provider_order_parses():
         telegram_bot_token="test",
         webhook_secret="secret",
         database_url="postgresql://user:pass@localhost/db",
-        ai_provider_order="gemini, groq,nvidia",
+        ai_provider_order="nvidia, groq, gemini, openrouter",
     )
-    assert s.provider_order == ["gemini", "groq", "nvidia"]
+    assert s.provider_order == ["gemini", "groq"]
 
 
-def test_default_ai_fallback_order_is_gemini_then_groq_then_openrouter():
+def test_default_ai_fallback_order_is_gemini_then_groq_only():
     settings = Settings(
         telegram_bot_token="test",
         webhook_secret="secret",

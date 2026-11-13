@@ -668,3 +668,57 @@ def test_normal_provider_stop_result_is_accepted():
     )
     assert result["text"] == "Complete answer"
     assert result["finish_reason"] == "STOP"
+
+
+@pytest.mark.asyncio
+async def test_provider_account_failover_gets_one_timeout_window_per_configured_key():
+    class SlowSecondaryCapableProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ("secondary",)
+        model = "test-model"
+
+        def __init__(self):
+            self.received_timeout = None
+
+        async def generate(self, messages, timeout, max_tokens):
+            self.received_timeout = timeout
+            # Simulate primary account consuming its own timeout window and the
+            # secondary account then returning inside the combined router window.
+            await asyncio.sleep(timeout * 1.25)
+            return {"text": "secondary account response", "usage": {}}
+
+    settings = FakeSettings()
+    settings.ai_timeout_seconds = 0.08
+    router = AIRouter(settings)
+    provider = SlowSecondaryCapableProvider()
+    result = await router._call_provider(
+        "gemini", provider,
+        [{"role": "user", "content": "Explain Naruto"}],
+        100,
+    )
+    assert result["text"] == "secondary account response"
+    assert provider.received_timeout == pytest.approx(0.08)
+
+
+@pytest.mark.asyncio
+async def test_single_account_provider_keeps_single_timeout_window():
+    class SingleAccountProvider:
+        name = "gemini"
+        api_key = "primary"
+        fallback_api_keys = ()
+        model = "test-model"
+
+        async def generate(self, messages, timeout, max_tokens):
+            await asyncio.sleep(timeout * 1.25)
+            return {"text": "single account response", "usage": {}}
+
+    settings = FakeSettings()
+    settings.ai_timeout_seconds = 0.08
+    router = AIRouter(settings)
+    with pytest.raises(asyncio.TimeoutError):
+        await router._call_provider(
+            "gemini", SingleAccountProvider(),
+            [{"role": "user", "content": "Explain Naruto"}],
+            100,
+        )

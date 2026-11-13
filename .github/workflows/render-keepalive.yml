@@ -1,19 +1,16 @@
-name: Render keep-alive
+name: Render keep-alive A
 
 on:
   schedule:
-    # Three staggered 5-minute schedules create a target ping about every 2 minutes.
-    # This gives later scheduled runs a chance to reach Render if one run is delayed.
-    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 * * * *"
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
-    - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+    # This workflow runs once every 5 minutes.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ani-zeo-render-keepalive
+  group: ani-zeo-render-keepalive-a
   cancel-in-progress: false
 
 jobs:
@@ -21,12 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Send lightweight health check to Ani Zeo
+      - name: Check Ani Zeo health endpoint
         shell: bash
         run: |
           set -euo pipefail
-          url="https://ani-zeo-foundation.onrender.com/"
-          echo "Checking Ani Zeo health endpoint..."
-          response="$(curl --fail --silent --show-error --max-time 100 "${url}")"
+          response="$(curl --fail --silent --show-error --max-time 100 "https://ani-zeo-foundation.onrender.com/")"
           printf '%s' "${response}" | grep -Eq '"service"[[:space:]]*:[[:space:]]*"ani-zeo"'
           echo "Ani Zeo health endpoint verified."

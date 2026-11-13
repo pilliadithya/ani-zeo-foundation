@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     ai_cost_rates_json: str = "{}"
     ai_usage_admin_ids: str = ""
     gemini_api_key: str = ""
-    # Use Gemini 3.5 Flash as the initial test model; Render's GEMINI_MODEL overrides this default.
+    # Optional second, independently-owned Gemini account/project key.
+    gemini_api_key_2: str = ""
     gemini_model: str = "gemini-3.5-flash"
     # Comma-separated Gemini model fallbacks, tried only after HTTP 429/503.
     gemini_fallback_models: str = "gemini-3.5-flash-lite,gemini-3.7-flash,gemini-3.6-flash,gemini-3.8-flash"
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
         primary = self.gemini_model.strip()
         models = [model.strip() for model in self.gemini_fallback_models.split(",") if model.strip()]
         return list(dict.fromkeys(model for model in models if model != primary))
+
+    @property
+    def gemini_api_key_list(self) -> list[str]:
+        return list(dict.fromkeys(
+            key.strip() for key in (self.gemini_api_key, self.gemini_api_key_2) if key.strip()
+        ))
 
     @property
     def search_order(self) -> list[str]:

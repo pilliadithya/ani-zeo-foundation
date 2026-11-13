@@ -66,7 +66,7 @@ class AnimeResearchService:
         "charcter": "character", "episdoe": "episode",
         "eposide": "episode", "stduio": "studio",
     }
-    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
+    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "loki", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
     INTENT_ENTITIES = (
         "one piece", "naruto", "boruto", "bleach", "dragon ball", "big three", "big 3",
         "demon slayer", "jujutsu kaisen", "attack on titan",
@@ -117,12 +117,16 @@ class AnimeResearchService:
         corrected = cls.correct_typos(original)
         lower = corrected.casefold()
         previous = " ".join(
-            str(x.get("content", ""))[:400]
-            for x in (history or [])[-6:]
+            str(x.get("content", ""))[:600]
+            for x in (history or [])[-12:]
             if isinstance(x, dict)
         ).casefold()
+        # Expand OP only when earlier messages establish One Piece as the topic.
+        if re.search(r"\b(one\s*piece)\b", previous):
+            corrected = re.sub(r"\bOP\b", "One Piece", corrected, flags=re.I)
+            lower = corrected.casefold()
         has_context = bool(
-            re.search(r"\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\b", previous)
+            re.search(r"\b(anime|manga|one piece|op|naruto|boruto|bleach|luffy|loki|gojo|goku|watch order)\b", previous)
         )
         entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
         explicit_anime_scope = bool(
@@ -138,14 +142,14 @@ class AnimeResearchService:
         )
         telugu_anime = bool(
             re.search(r"(గురించి|చెప్పు|చెప్పండి|కథ|పాత్ర|మాంగా|అనిమే|ఎపిసోడ్|చాప్టర్|లఫీ|జోరో|నరుటో|బ్లీచ్|వన్\s*పీస్)", corrected)
-            or re.search(r"\b(gurinchi|gurunchi|cheppu|cheppava|katha|patra)\b", lower)
+            or re.search(r"\b(gurinchi|gurunchi|cheppu|cheppava|antaga|athani|aame|adi|dani|vaadi|vaalla|katha|patra)\b", lower)
         )
         followup_candidate = bool(
             has_context
             and len(corrected.split()) <= 12
             and (
                 re.search(
-                    r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue)\b",
+                    r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue|athani|aame|adi|dani|vaadi|vaalla|aa character|aa form)\b",
                     lower,
                 )
                 or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)

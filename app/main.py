@@ -848,7 +848,7 @@ async def lifespan(app: FastAPI):
 
     telegram_app.bot_data["db"] = db
     telegram_app.bot_data["ai"] = AIRouter(settings)
-    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key, settings.decodo_api_key, settings.langsearch_api_key, settings.search_order, settings.decodo_geo)
+    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key, settings.decodo_api_key, settings.langsearch_api_key, settings.search_order, settings.decodo_geo, settings.gemini_api_key_list[1:])
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))

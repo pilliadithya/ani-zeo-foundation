@@ -20,7 +20,7 @@ Every integration must be replaceable, observable, testable, and independently d
 The deployed foundation branch contains:
 - FastAPI Telegram webhook application and handlers.
 - Supabase/PostgreSQL persistence and additive migrations.
-- AI routing for Gemini, Groq, NVIDIA and OpenRouter.
+- AI routing adapters for Gemini, Groq, NVIDIA and OpenRouter; the selected active chain for this rebuild is Gemini → Groq → OpenRouter. NVIDIA is excluded from the active chain by operator decision.
 - Gemini model fallback configuration.
 - Shared AI response/presentation instructions and Tenglish handling.
 - Anime research, live-search adapters, evidence filtering and a fact-verification layer.
@@ -38,11 +38,11 @@ The deployed Render service is connected to this repository and branch, with aut
 |---|---|---|---|
 | Google Gemini | `GEMINI_API_KEY` | Implemented | Primary-capable model and Google Search grounding |
 | Groq | `GROQ_API_KEY` | Implemented | Model fallback |
-| NVIDIA NIM | `NVIDIA_API_KEY` | Implemented | Model fallback |
+| NVIDIA NIM | `NVIDIA_API_KEY` | Adapter exists; excluded from active chain | Disabled unless explicitly re-enabled later |
 | OpenRouter | `OPENROUTER_API_KEY` | Implemented | Model fallback / model access |
 | Bytez | Not defined yet | Not implemented | Evaluate API compatibility before adding |
 
-The four implemented providers use a common provider adapter pattern. Bytez must not be treated as integrated until its official API contract, supported models, usage limits, terms and free access are verified and an adapter plus tests are implemented.
+The four implemented provider adapters use a common provider interface. The active chain for this rebuild is **Gemini → Groq → OpenRouter**. NVIDIA is not part of the active chain and should not be called. Bytez must not be treated as integrated until its official API contract, supported models, usage limits, terms and free access are verified and an adapter plus tests are implemented.
 
 ### 4.2 Search and grounding providers
 
@@ -80,7 +80,7 @@ The code defines seven secret slots for the currently implemented AI/search inte
 
 The repository's `.env.example` documents these names. The Render service metadata endpoint does not expose the environment-variable inventory, so the presence of these names in code does **not** prove that their values are configured in Render. Never print or transmit secret values in logs, chat, reports or source control.
 
-**Operator action:** In Render → ani-zeo-foundation → Environment, add or confirm the seven keys above only where missing. Keep values private. Do not create duplicate keys to multiply quotas or bypass provider limits. Do not add a Bytez key yet; it is pending evaluation. No additional search API key is requested at this stage.
+**Operator action:** In Render → ani-zeo-foundation → Environment, add or confirm these active keys where missing: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DECODO_API_KEY`, `LANGSEARCH_API_KEY`, and `TAVILY_API_KEY`. The user has not yet added the OpenRouter key and will add it before the live OpenRouter test. `NVIDIA_API_KEY` is not required for the active chain and should not be added for this phase. Keep all values private. Do not create duplicate keys to multiply quotas or bypass provider limits. Do not add a Bytez key yet; it is pending evaluation. No additional search API key is requested at this stage.
 
 After the operator confirms the keys are saved, validate configuration safely through provider health checks that return only configured/missing/valid/invalid/rate-limited status and never return key values.
 
@@ -111,6 +111,10 @@ After the operator confirms the keys are saved, validate configuration safely th
 - Validate response content and finish reason; reject empty or truncated answers when completeness is required.
 - Track provider/model, operation, latency, finish reason and provider-reported token usage where available.
 - Do not invent token usage or cost when provider data is missing.
+- Active provider order for this rebuild: Gemini primary → Groq fallback → OpenRouter backup fallback.
+- Gemini must have its own configured model-level fallback list; this is distinct from switching to another provider.
+- If Gemini fails transiently, try Groq; if Groq fails, try OpenRouter. Skip providers with missing keys and report that status without leaking secrets.
+- NVIDIA is explicitly excluded from the active provider chain by operator decision. Keep its adapter dormant only if tests and configuration remain clear; do not call it.
 - Keep Gemini-only operation possible: the application must run with Gemini as the sole enabled AI provider, with graceful failure when Gemini is unavailable.
 - Keep the development workflow vendor-neutral; source code, tests, deployment and configuration must not require ChatGPT/OpenAI.
 
@@ -163,6 +167,8 @@ Measure successful usable-evidence rate, primary-source hit rate, latency, error
 
 Required tests include:
 - provider configuration, missing/invalid keys and model errors;
+- exact active fallback order Gemini → Groq → OpenRouter, including missing OpenRouter key before setup and successful OpenRouter use after setup;
+- confirm NVIDIA is never called in the active chain;
 - fallback order, timeouts, rate limits, retries and cooldowns;
 - empty, malformed and truncated AI responses;
 - search normalization, deduplication, relevance and provider fallback;
@@ -216,4 +222,6 @@ Present exact changes, test evidence, remaining risks and migration plan. Deploy
 - Existing adapters and tests need a full code-path audit and live credential verification.
 - Bytez is not implemented.
 - The three current search integrations have not yet been benchmarked against a shared test set.
+- OpenRouter is implemented in code but its Render API key has not yet been added by the operator; live validation is pending.
+- NVIDIA adapter remains in source but is excluded from the selected active provider order.
 - This document is the architecture baseline, not a claim that all roadmap work is complete.

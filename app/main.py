@@ -304,7 +304,6 @@ def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
 FORMAT_TITLES = {
     "live_news": "📰 ANIME NEWS",
     "anime_question": "🎌 ANIME GUIDE",
-    "character_question": "👤 CHARACTER DOSSIER",
     "watch_order": "📺 WATCH / READ ORDER",
     "recommendation": "✨ RECOMMENDATIONS",
     "industry_question": "🎬 INDUSTRY INSIGHT",

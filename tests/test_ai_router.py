@@ -66,6 +66,10 @@ def test_live_search_only_for_fresh_information():
 
 def test_title_extraction_and_metadata_context():
     assert AnimeResearchService.extract_title("Tell me about Frieren") == "Frieren"
+    # Character questions must not be misrouted into AniList title lookup.
+    assert AnimeResearchService.extract_title("Who is Luffy's father?") is None
+    assert AnimeResearchService.extract_title("Who is Naruto?") is None
+    assert AnimeResearchService.extract_title("Tell me about One Piece") == "One Piece"
     context = AnimeResearchService.context_for({"title": "Frieren", "source": "AniList", "genres": ["Adventure"]})
     assert "Title: Frieren" in context
     assert "Source: AniList" in context

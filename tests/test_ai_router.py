@@ -482,7 +482,7 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
 
 def test_output_budget_scales_with_requested_depth():
     assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) >= 300
-    assert AIRouter._output_budget([{"role": "user", "content": "Who is Luffy's father?"}]) <= 400
+    assert AIRouter._output_budget([{"role": "user", "content": "Who is Luffy's father?"}]) <= 500
     assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) > 900
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) > 500
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) > AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}])

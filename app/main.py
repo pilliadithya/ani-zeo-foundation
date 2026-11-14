@@ -533,7 +533,13 @@ async def chat_message(update: Update, context) -> None:
         return
 
     research = context.application.bot_data["research"]
+    conversation_state = await db.get_conversation_state(user.id)
     recent_for_scope = await db.get_recent_messages(user.id, limit=12)
+    if conversation_state.get("active_topic"):
+        recent_for_scope.append({
+            "role": "assistant",
+            "content": "Ani Zeo active conversation topic: " + str(conversation_state["active_topic"])[:160],
+        })
     intent_result = research.detect_intent(message.text, recent_for_scope)
     scope = intent_result["scope"]
     normalized_text = intent_result["normalized_text"]
@@ -598,7 +604,6 @@ async def chat_message(update: Update, context) -> None:
                     # Migrate an older plain-text memory value safely.
                     summary_text = str(memory_record)[:1500]
 
-        conversation_state = await db.get_conversation_state(user.id)
         history = await db.get_recent_messages(user.id, limit=16)
         # This immutable, provider-neutral snapshot includes the current turn exactly once.
         history = [dict(item) for item in history]
@@ -796,11 +801,17 @@ async def chat_message(update: Update, context) -> None:
         )
         if saved:
             detected_topic = title or research.extract_title(normalized_text)
+            if not detected_topic:
+                detected_topic = next(
+                    (entity.title() for entity in research.INTENT_ENTITIES
+                     if entity in normalized_text.casefold()),
+                    None,
+                )
             await db.update_conversation_state(
                 user.id,
                 active_topic=detected_topic or conversation_state.get("active_topic"),
                 resolved_entities=(
-                    [{"type": "anime_title", "name": detected_topic, "source": "explicit_user_turn"}]
+                    [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}]
                     if detected_topic else []
                 ),
                 update_id=getattr(update, "update_id", None),

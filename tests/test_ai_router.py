@@ -890,14 +890,14 @@ def test_simple_character_question_defaults_to_concise_companion_answer():
     assert "Use at most one relevant emoji by default" in SYSTEM_PROMPT
 
 
-def test_clear_english_turn_overrides_saved_tenglish_preference():
+def test_selected_english_language_is_authoritative_for_every_turn():
     router = AIRouter(FakeSettings())
     messages = router._build_messages(
-        [{"role": "user", "content": "Who is Luffy's father?"}],
-        "tenglish",
+        [{"role": "user", "content": "Luffy ki father evaru?"}],
+        "english",
     )
     assert "USER'S SELECTED LANGUAGE: casual conversational English" in messages[0]["content"]
-
+    assert "STRICT Tenglish" not in messages[0]["content"]
 
 def test_tenglish_turn_keeps_saved_tenglish_preference():
     router = AIRouter(FakeSettings())

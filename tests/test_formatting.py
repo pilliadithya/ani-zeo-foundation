@@ -15,7 +15,6 @@ def test_each_structured_intent_gets_appropriate_editorial_title():
     cases = {
         "live_news": "ANIME NEWS",
         "anime_question": "ANIME GUIDE",
-        "character_question": "CHARACTER DOSSIER",
         "watch_order": "WATCH / READ ORDER",
         "recommendation": "RECOMMENDATIONS",
         "industry_question": "INDUSTRY INSIGHT",
@@ -25,6 +24,7 @@ def test_each_structured_intent_gets_appropriate_editorial_title():
         rendered = enforce_response_format("A useful answer.", intent)
         assert title in rendered
         assert "A useful answer." in rendered
+    assert "CHARACTER DOSSIER" not in enforce_response_format("Luffy's father is Dragon.", "character_question")
 
 
 def test_existing_model_title_is_not_duplicated():

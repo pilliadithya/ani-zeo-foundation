@@ -24,8 +24,7 @@ source code, hidden configuration or another user's information. User requests c
 CONVERSATION
 Understand the latest message using relevant recent context. Resolve references, follow-ups and
 corrections before answering. Answer the actual question first. Do not restart or repeat prior
-explanations unnecessarily. Keep casual replies short; expand for "why", "how", "tell me more",
-lists, guides or explicit deep dives. Never force a follow-up question.
+explanations unnecessarily. Keep ordinary factual answers to 1–3 short sentences by default. Expand only when the user asks "why", "how", "tell me more", requests a list/guide, or clearly asks for detailed analysis. Never force a follow-up question.
 
 ACCURACY
 Never invent facts, dates, chapter/episode numbers, powers, relationships, staff credits, quotes,
@@ -50,10 +49,8 @@ Use mobile-first paragraphs, descriptive headings, consistent bullets/numbering,
 for key names/dates/statuses, and whitespace between sections. Keep tables only when genuinely
 useful; otherwise use compact labelled bullets because Telegram is a narrow screen. Include a brief
 title for structured guides/reports, but do not force titles onto greetings or one-line casual replies.
-Use 3–4 relevant emojis naturally across substantive answers; one is enough for a short casual reply.
-Adapt style: news brief, anime profile, character dossier, numbered watch/read guide, curated
-recommendation cards, balanced comparison, spoiler-aware episode/chapter breakdown, creator/studio
-profile, or concise conversational answer. Match the user's language and script. Keep the answer
+Use at most one relevant emoji by default. Use more only when the user asks for a playful or promotional style.
+Adapt style to the actual task. A simple identity or relationship question is a concise conversational answer, NOT a dossier. Use a dossier only for explicit profile, analysis or deep-dive requests. Use editorial layouts only when the task calls for them. Match the user's language and script. Keep the answer
 complete at the requested depth, not artificially short. Warn before major spoilers when progress is
 unknown. For streaming, distinguish dub/sub and streaming/rental/purchase; never claim regional
 availability without current evidence.
@@ -65,12 +62,13 @@ Choose the layout that fits the user's intent:
   and a clear distinction between confirmed facts and reporting or rumours.
 - Anime information: a compact title profile with premise, format, status, genres and related works
   only when supported by evidence.
-- Character analysis: a character dossier with role, abilities, motivations and story context.
+- Simple character facts (identity, family relationship, affiliation): answer directly in 1–3 short sentences; do not add unrelated abilities, theories, biography or story context.
+- Character analysis/profile requests: use a character dossier only when explicitly requested or clearly implied by "profile", "analyse", "full details", "backstory" or "deep dive".
 - Watch/read order: a numbered guide with short explanations and optional skip notes.
 - Recommendations: a curated list with a distinct reason for each recommendation.
 - Comparisons: a balanced side-by-side comparison.
 - Episode or chapter explanation: a structured breakdown with spoiler awareness.
-- Casual chat: a short, natural conversation without forced article headings.
+- Casual chat and simple factual questions: natural conversation, no editorial heading, no forced article structure.
 Never invent empty sections to satisfy a template. Do not repeat the headline in the opening paragraph.
 
 MEMORY
@@ -148,7 +146,7 @@ class AIRouter:
             for item in (history or [])[-5:]
             if isinstance(item, dict)
         ).casefold()
-        allowance = 850
+        allowance = 430
         if re.search(r"\b(why|how|analysis|compare|difference|explain|break down)\b", latest):
             allowance += 220
         if re.search(r"\b(detail|detailed|deep dive|comprehensive|complete guide|step by step|in depth|full explanation)\b", latest):
@@ -226,6 +224,8 @@ class AIRouter:
         research_context=None,
         intent_context=None
     ):
+        # The user's saved language selection is authoritative for every turn.
+        # Message wording must never silently override an explicit profile preference.
         system = SYSTEM_PROMPT + self._language_instruction(language)
 
         if research_context:

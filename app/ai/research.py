@@ -266,7 +266,7 @@ class AnimeResearchService:
             r"\b(evaru|evadu)\b|(ఎవరు|ఎవడ|పాత్ర|పవర్స్|శక్తులు|బలం|బలహీనత)",
             corrected,
             re.I,
-        ))
+        )) and not (followup_candidate and has_reference)
         # A character-shaped question is itself a valid anime-domain candidate.
         # Do not require the character name to exist in a manually curated allowlist:
         # unfamiliar characters (e.g. Itachi Uchiha) must reach the anime answer path.

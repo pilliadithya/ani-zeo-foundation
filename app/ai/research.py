@@ -248,6 +248,7 @@ class AnimeResearchService:
                 has_reference
                 or language_followup
                 or short_continuation
+                or bool(re.search(r"\\b(ante|meaning enti|meaning cheppu|artham enti)\\b", lower))
                 or (continuation_ascii or continuation_telugu) and character_terms
             )
         )

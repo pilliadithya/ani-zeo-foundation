@@ -421,7 +421,8 @@ class AIRouter:
             # bounded grace, wait_for cancels account 2 at the exact boundary
             # (e.g. 14s for two 7s accounts), before it can return its timeout.
             # Keep this grace small and always cap it by the shared request deadline.
-            call_timeout = timeout * account_count + min(1.5, 0.75 * account_count)
+            grace = min(1.5, 0.75 * account_count) if account_count > 1 else 0.0
+            call_timeout = timeout * account_count + grace
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0.05:
@@ -542,7 +543,7 @@ class AIRouter:
             for name in configured_order
             if str(name).strip()
         ))
-        total_timeout = max(12.0, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
+        total_timeout = max(0.1, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
         deadline = time.monotonic() + total_timeout
         for name in selected_order:
             remaining = deadline - time.monotonic()
@@ -634,7 +635,7 @@ class AIRouter:
                 )
 
         if not user_lines:
-            return existing_summary
+            return None
 
         transcript = "\n".join(user_lines)[-3_500:]
         old = (existing_summary or "").strip()[:self.SUMMARY_MAX_CHARS]
@@ -666,7 +667,7 @@ class AIRouter:
         # Do not let a slow NVIDIA request delay normal conversations.
         memory_order = [
             name
-            for name in ("groq", "gemini", "nvidia", "openrouter")
+            for name in ("gemini", "groq", "openrouter")
             if name in self.providers
         ]
 
@@ -689,8 +690,8 @@ class AIRouter:
                 )
                 result = self._normalize_provider_result(raw_result, name)['text']
 
-                if not result or result == "NO_MEMORY":
-                    return existing_summary
+                if not result or result.strip() == "NO_MEMORY":
+                    return None
 
                 log.info(
                     "Memory summary updated using provider=%s",
@@ -708,5 +709,6 @@ class AIRouter:
                     self._status_code(exc)
                 )
 
-        # If memory generation fails, retain the previous summary.
-        return existing_summary
+        # If memory generation fails, retain the previous summary and cursor.
+        # None tells the caller not to mark these messages as summarized.
+        return None

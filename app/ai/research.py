@@ -169,7 +169,8 @@ class AnimeResearchService:
             r"demon\s*slayer|jujutsu\s*kaisen|attack\s*on\s*titan|my\s*hero\s*academia|"
             r"frieren|solo\s*leveling|death\s*note|luffy|zoro|gojo|sukuna|ichigo|"
             r"goku|tanjiro|eren|crunchyroll|anilist|monkey\s+d\s+(?:luffy|dragon)|"
-            r"straw\s+hat(?:\s+pirates)?|revolutionary\s+army)\b"
+            r"straw\s+hat(?:\s+pirates)?|revolutionary\s+army|studio\s+ghibli|mappa|ufotable|"
+            r"toei\s+animation|kyoto\s+animation|wit\s+studio|cloverworks|madhouse|pierrot|a-1\s+pictures)\b"
         )
         entity_match = bool(re.search(entity_pattern, lower, re.I))
         title_query = bool(TITLE.fullmatch(corrected))
@@ -180,7 +181,9 @@ class AnimeResearchService:
             "revolutionary army", "gojo", "goku", "sukuna", "ichigo", "tanjiro",
             "eren", "frieren", "solo leveling", "demon slayer", "jujutsu kaisen",
             "attack on titan", "dragon ball", "watch order", "manga chapter",
-            "anime episode", "active conversation topic:",
+            "anime episode", "active conversation topic:", "studio ghibli", "mappa",
+            "ufotable", "toei animation", "kyoto animation", "wit studio",
+            "cloverworks", "madhouse", "pierrot", "a-1 pictures",
         )
         has_context = any(term in context_text for term in context_entities)
         # A generic "tell me about X" is not proof that X is anime. Known anime

@@ -50,7 +50,7 @@ for key names/dates/statuses, and whitespace between sections. Keep tables only 
 useful; otherwise use compact labelled bullets because Telegram is a narrow screen. Include a brief
 title for structured guides/reports, but do not force titles onto greetings or one-line casual replies.
 Use at most one relevant emoji by default. Use more only when the user asks for a playful or promotional style.
-Adapt style to the actual task. A simple identity or relationship question is a concise conversational answer, NOT a dossier. Use a character dossier only when the user asks for a profile, detailed explanation, analysis, or full breakdown. Use reports and editorial layouts only when the request genuinely calls for them. Match the user's language and script. Keep the answer
+Adapt style to the actual task. A simple identity or relationship question is a concise conversational answer, NOT a dossier. Use a dossier only for explicit profile, analysis or deep-dive requests. Use editorial layouts only when the task calls for them. Match the user's language and script. Keep the answer
 complete at the requested depth, not artificially short. Warn before major spoilers when progress is
 unknown. For streaming, distinguish dub/sub and streaming/rental/purchase; never claim regional
 availability without current evidence.
@@ -146,7 +146,7 @@ class AIRouter:
             for item in (history or [])[-5:]
             if isinstance(item, dict)
         ).casefold()
-        allowance = 350
+        allowance = 430
         if re.search(r"\b(why|how|analysis|compare|difference|explain|break down)\b", latest):
             allowance += 220
         if re.search(r"\b(detail|detailed|deep dive|comprehensive|complete guide|step by step|in depth|full explanation)\b", latest):
@@ -228,12 +228,12 @@ class AIRouter:
         # Tenglish preference; transliterated Telugu markers preserve Tenglish mode.
         latest_text = self._latest_user_text(history).casefold()
         telugu_markers = re.search(
-            r"\\b(enti|ela|enduku|cheppu|cheppava|undhi|undi|avuthundi|chesadu|chesindi|"
+            r"\b(enti|ela|enduku|cheppu|cheppava|undhi|undi|avuthundi|chesadu|chesindi|"
             r"lo|ki|kosam|kani|ante|nuvvu|meeru|naaku|naku|evaru|emiti)\\b",
             latest_text,
         )
         english_markers = re.search(
-            r"\\b(who|what|where|when|why|how|is|are|was|were|does|do|did|"
+            r"\b(who|what|where|when|why|how|is|are|was|were|does|do|did|"
             r"tell|explain|please|about|the|and|with)\\b",
             latest_text,
         )

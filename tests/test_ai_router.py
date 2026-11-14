@@ -853,3 +853,25 @@ async def test_fallback_receives_identical_provider_independent_conversation_sna
     sent = captured["messages"]
     assert sent[-3:] == history
     assert "Active topic: One Piece" in sent[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_failed_memory_summary_does_not_return_old_summary_as_a_new_write():
+    r = AIRouter(FakeSettings())
+    r.providers["gemini"] = FakeProvider("gemini", "a", error=RuntimeError("offline"))
+    r.providers["groq"] = FakeProvider("groq", "b", error=RuntimeError("offline"))
+    result = await r.summarize_memory(
+        "Previously confirmed preference: English",
+        [{"role": "user", "content": "What is the watch order?"}],
+    )
+    assert result is None
+
+
+def test_active_topic_snapshot_keeps_short_followup_in_anime_scope():
+    from app.ai.research import AnimeResearchService
+    history = [
+        {"role": "assistant", "content": "Ani Zeo active conversation topic: One Piece"},
+    ]
+    result = AnimeResearchService.detect_intent("What about his mother?", history)
+    assert result["intent"] == "follow_up"
+    assert result["scope"] == "anime"

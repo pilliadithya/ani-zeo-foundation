@@ -261,14 +261,17 @@ class AnimeResearchService:
             )
         )
 
-        character_question = (
-            bool(re.search(
-                r"\\b(who is|who are|evaru|evadu)\\b|(ఎవరు|ఎవడ)",
-                corrected,
-                re.I,
-            ))
+        explicit_who_form = bool(
+            re.search(r"\\b(who is|who are)\\b|(ఎవరు|ఎవడ)", corrected, re.I)
+            or (
+                re.search(r"\\b(evaru|evadu)\\b", lower, re.I)
+                and not has_reference
+            )
+        )
+        character_question = bool(
+            explicit_who_form
             or (character_terms and (has_context or explicit_anime_scope))
-        ) and not (followup_candidate and has_reference)
+        )
         # A character-shaped question is itself a valid anime-domain candidate.
         # Do not require the character name to exist in a manually curated allowlist:
         # unfamiliar characters (e.g. Itachi Uchiha) must reach the anime answer path.

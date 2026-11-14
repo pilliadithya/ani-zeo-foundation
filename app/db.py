@@ -296,10 +296,8 @@ class Database:
                  (telegram_user_id, active_topic, resolved_entities, last_completed_update_id, updated_at)
                values ($1,$2,$3::jsonb,$4,now())
                on conflict (telegram_user_id) do update set
-                 active_topic=coalesce(excluded.active_topic, conversation_state.active_topic),
-                 resolved_entities=case
-                   when jsonb_array_length(excluded.resolved_entities) > 0
-                   then excluded.resolved_entities else conversation_state.resolved_entities end,
+                 active_topic=excluded.active_topic,
+                 resolved_entities=excluded.resolved_entities,
                  last_completed_update_id=coalesce(excluded.last_completed_update_id, conversation_state.last_completed_update_id),
                  updated_at=now()""",
             user_id, (active_topic or "")[:160] or None,

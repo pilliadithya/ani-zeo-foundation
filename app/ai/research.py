@@ -172,7 +172,12 @@ class AnimeResearchService:
             r"straw\s+hat(?:\s+pirates)?|revolutionary\s+army)\b"
         )
         entity_match = bool(re.search(entity_pattern, lower, re.I))
-        explicit_anime_scope = bool(ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected))
+        title_query = bool(TITLE.fullmatch(corrected))
+        # A generic "tell me about X" is not proof that X is anime. Known anime
+        # entities, anime vocabulary, or an already-active anime context are.
+        explicit_anime_scope = bool(
+            ANIME.search(corrected) or entity_match or (title_query and has_context)
+        )
 
         context_entities = (
             "anime", "manga", "one piece", "naruto", "boruto", "bleach",
@@ -248,6 +253,7 @@ class AnimeResearchService:
                 has_reference
                 or language_followup
                 or short_continuation
+                or bool(re.fullmatch(r"(inka|inkaa)\s+(konchem|koncham)\s+(detail|details)\s+ga\s+cheppu[.!? ]*", lower))
                 or bool(re.search(r"\b(ante|meaning enti|meaning cheppu|artham enti)\b", lower))
                 or (continuation_ascii or continuation_telugu) and character_terms
             )

@@ -570,12 +570,15 @@ async def chat_message(update: Update, context) -> None:
             previous_greeting,
             message.text,
         )
-        await db.save_message(user.id, "user", message.text)
-        await db.save_message(user.id, "assistant", greeting)
         await message.reply_text(greeting)
+        await db.save_exchange(user.id, message.text, greeting, getattr(update, "update_id", None))
+        await db.update_conversation_state(
+            user.id,
+            active_topic=None,
+            resolved_entities=[],
+            update_id=getattr(update, "update_id", None),
+        )
         return
-
-    await db.save_message(user.id, "user", message.text)
 
     try:
         # Personalization can be disabled in the user's profile.
@@ -595,7 +598,11 @@ async def chat_message(update: Update, context) -> None:
                     # Migrate an older plain-text memory value safely.
                     summary_text = str(memory_record)[:1500]
 
+        conversation_state = await db.get_conversation_state(user.id)
         history = await db.get_recent_messages(user.id, limit=16)
+        # This immutable, provider-neutral snapshot includes the current turn exactly once.
+        history = [dict(item) for item in history]
+        history.append({"role": "user", "content": normalized_text})
 
         live_result = None
         is_historical_request = research._is_historical_query(normalized_text)
@@ -734,6 +741,10 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.context_for(metadata),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
+                    + (
+                        f"Active conversation topic from Ani Zeo memory: {conversation_state.get('active_topic')}. "
+                        if conversation_state.get("active_topic") else ""
+                    )
                     + {
                         "anime_question": "Use an anime profile layout: title, premise, format/status and useful details when supported. ",
                         "character_question": "Use a character dossier: identity, role, abilities and story context, with spoiler care. ",
@@ -750,7 +761,6 @@ async def chat_message(update: Update, context) -> None:
             usage = dict(usage)
             usage["operation"] = "response_generation"
 
-        await db.save_message(user.id, "assistant", answer)
         log.info(
             "AI reply completed provider=%s input_tokens=%s output_tokens=%s total_tokens=%s",
             provider,
@@ -779,6 +789,23 @@ async def chat_message(update: Update, context) -> None:
         answer = enforce_response_format(answer, intent_result['intent'])
         answer = apply_emoji_style(answer, intent_result['intent'])
         await send_formatted_answer(message, answer)
+
+        # Commit the transcript only after Telegram confirms the main answer was sent.
+        saved = await db.save_exchange(
+            user.id, message.text, answer, getattr(update, "update_id", None)
+        )
+        if saved:
+            detected_topic = title or research.extract_title(normalized_text)
+            await db.update_conversation_state(
+                user.id,
+                active_topic=detected_topic or conversation_state.get("active_topic"),
+                resolved_entities=(
+                    [{"type": "anime_title", "name": detected_topic, "source": "explicit_user_turn"}]
+                    if detected_topic else []
+                ),
+                update_id=getattr(update, "update_id", None),
+            )
+
         if live_result and live_result.get("citations"):
             # Keep references available without turning the reply into a bibliography.
             source_links = []

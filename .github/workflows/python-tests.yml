@@ -3,6 +3,7 @@ name: Python tests
 on:
   push:
     branches:
+      - rebuild/master-architecture-v1
       - feat/provider-independent-conversation-memory
   pull_request:
     branches:

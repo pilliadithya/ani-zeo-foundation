@@ -634,7 +634,7 @@ class AIRouter:
                 )
 
         if not user_lines:
-            return existing_summary
+            return None
 
         transcript = "\n".join(user_lines)[-3_500:]
         old = (existing_summary or "").strip()[:self.SUMMARY_MAX_CHARS]
@@ -666,7 +666,7 @@ class AIRouter:
         # Do not let a slow NVIDIA request delay normal conversations.
         memory_order = [
             name
-            for name in ("groq", "gemini", "nvidia", "openrouter")
+            for name in ("gemini", "groq", "openrouter")
             if name in self.providers
         ]
 
@@ -689,8 +689,8 @@ class AIRouter:
                 )
                 result = self._normalize_provider_result(raw_result, name)['text']
 
-                if not result or result == "NO_MEMORY":
-                    return existing_summary
+                if not result or result.strip() == "NO_MEMORY":
+                    return None
 
                 log.info(
                     "Memory summary updated using provider=%s",
@@ -708,5 +708,6 @@ class AIRouter:
                     self._status_code(exc)
                 )
 
-        # If memory generation fails, retain the previous summary.
-        return existing_summary
+        # If memory generation fails, retain the previous summary and cursor.
+        # None tells the caller not to mark these messages as summarized.
+        return None

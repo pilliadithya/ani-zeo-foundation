@@ -226,8 +226,7 @@ class AnimeResearchService:
         ))
         character_terms = bool(re.search(
             r"\b(powers?|ability|abilities|strength|weakness|backstory|relationship|"
-            r"bounty|haki|devil fruit|forms?|skills?|father|mother|brother|sister|"
-            r"wife|husband|age|death|fights?|abilities)\b|"
+            r"bounty|haki|devil fruit|forms?|skills?|fights?|abilities)\b|"
             r"(పవర్స్|శక్తులు|బలం|బలహీనత|తండ్రి|తల్లి|అన్న|తమ్ముడు|చెల్లి)",
             corrected,
             re.I,

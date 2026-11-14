@@ -291,8 +291,8 @@ def format_inline_markdown(text: str) -> str:
 def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
     if not answer or re.search(r'[😀-🙏🌀-🫿]', answer):
         return answer
-    cues = {'live_news': '📰', 'character_question': '👤', 'watch_order': '📺', 'recommendation': '✨', 'industry_question': '🎬', 'follow_up': '💬', 'anime_question': '🎌', 'greeting': '👋'}
-    emoji = cues.get(intent, '🎌')
+    cues = {'live_news': '📰', 'character_question': '👤', 'watch_order': '📺', 'recommendation': '✨', 'industry_question': '🎬', 'follow_up': '💬', 'anime_question': '🌟', 'greeting': '👋'}
+    emoji = cues.get(intent, '🌟')
     lines = answer.splitlines()
     for index, line in enumerate(lines):
         if line.strip():
@@ -303,12 +303,13 @@ def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
 
 FORMAT_TITLES = {
     "live_news": "📰 ANIME NEWS",
-    "anime_question": "🎌 ANIME GUIDE",
+    "anime_question": "🌟 ANIME GUIDE",
     "character_question": "👤 CHARACTER DOSSIER",
     "watch_order": "📺 WATCH / READ ORDER",
     "recommendation": "✨ RECOMMENDATIONS",
     "industry_question": "🎬 INDUSTRY INSIGHT",
-    "follow_up": "💬 CONTINUING THE DISCUSSION",
+    "comparison": "⚖️ ANIME COMPARISON",
+    "episode_chapter": "📖 STORY / EPISODE BREAKDOWN",
 }
 
 
@@ -341,12 +342,13 @@ def enforce_response_format(answer: str, intent: str = "anime_question") -> str:
         has_title = bool(
             first.startswith("**")
             or first.startswith("📰")
-            or first.startswith("🎌")
+            or first.startswith("🌟")
             or first.startswith("👤")
             or first.startswith("📺")
             or first.startswith("✨")
             or first.startswith("🎬")
-            or first.startswith("💬")
+            or first.startswith("⚖️")
+            or first.startswith("📖")
         )
         if not has_title:
             raw = f"**{FORMAT_TITLES[intent]}**\n\n{raw}"
@@ -739,6 +741,8 @@ async def chat_message(update: Update, context) -> None:
                         "character_question": "Use a character dossier: identity, role, abilities and story context, with spoiler care. ",
                         "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
                         "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
+                        "comparison": "Use a balanced comparison with the same criteria for each subject, distinguish facts from opinion, and give a context-dependent verdict. ",
+                        "episode_chapter": "Use a spoiler-aware episode/chapter breakdown. Warn before major spoilers when viewing/reading progress is unknown; distinguish recap, interpretation and canon. Never invent episode or chapter numbers. ",
                         "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
                         "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into natural Telugu script. This explicit request overrides the saved language preference. Preserve all important details; never show the generic anime-only redirect. " if re.search(r"\b(in|into|to)\s+telugu\b", message.text, re.I) else ("Translate the previous assistant answer into the explicitly requested language and script, preserving all important details. " if re.search(r"\b(in|into|to)\s+(english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else "")),
                     }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
@@ -772,7 +776,7 @@ async def chat_message(update: Update, context) -> None:
 
         if metadata and metadata.get("cover"):
             try:
-                await message.reply_photo(photo=metadata["cover"], caption=f"🎌 {metadata['title']}")
+                await message.reply_photo(photo=metadata["cover"], caption=f"🌟 {metadata['title']}")
             except Exception as exc:
                 log.warning("Telegram anime cover send failed (%s)", type(exc).__name__)
 

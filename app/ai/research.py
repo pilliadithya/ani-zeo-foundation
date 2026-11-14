@@ -173,11 +173,6 @@ class AnimeResearchService:
         )
         entity_match = bool(re.search(entity_pattern, lower, re.I))
         title_query = bool(TITLE.fullmatch(corrected))
-        # A generic "tell me about X" is not proof that X is anime. Known anime
-        # entities, anime vocabulary, or an already-active anime context are.
-        explicit_anime_scope = bool(
-            ANIME.search(corrected) or entity_match or (title_query and has_context)
-        )
 
         context_entities = (
             "anime", "manga", "one piece", "naruto", "boruto", "bleach",
@@ -188,6 +183,11 @@ class AnimeResearchService:
             "anime episode", "active conversation topic:",
         )
         has_context = any(term in context_text for term in context_entities)
+        # A generic "tell me about X" is not proof that X is anime. Known anime
+        # entities, anime vocabulary, or an already-active anime context are.
+        explicit_anime_scope = bool(
+            ANIME.search(corrected) or entity_match or (title_query and has_context)
+        )
 
         # English, Romanized Telugu and Telugu-script references. Telugu script is
         # matched directly because Python's ASCII-style \b boundaries are unsuitable.

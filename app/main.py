@@ -481,6 +481,22 @@ async def send_formatted_answer(message, answer: str) -> None:
             await message.reply_text(chunk)
 
 
+
+
+# Telegram updates for the same user must not build competing context snapshots
+# inside this worker. Database update claims still protect duplicate webhook IDs.
+_USER_CONVERSATION_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+async def chat_message(update: Update, context) -> None:
+    user = update.effective_user
+    if not user:
+        return
+    lock = _USER_CONVERSATION_LOCKS.setdefault(user.id, asyncio.Lock())
+    async with lock:
+        await _chat_message_locked(update, context)
+
+
 async def telegram_error_handler(update: object, context) -> None:
     """Record uncaught PTB handler errors so the webhook can request a retry."""
     update_id = getattr(update, "update_id", None)
@@ -504,7 +520,7 @@ async def telegram_error_handler(update: object, context) -> None:
     )
 
 
-async def chat_message(update: Update, context) -> None:
+async def _chat_message_locked(update: Update, context) -> None:
     message = update.effective_message
     user = update.effective_user
 

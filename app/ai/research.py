@@ -146,8 +146,20 @@ class AnimeResearchService:
             r"ఇంకా|కొంచెం|చెప్పు|చెప్పవా|చెప్పగలవా|చెప్పండి|గురించి|"
             r"ఏంటి|ఎందుకు|ఎలా|పవర్స్|శక్తులు|బలం|బలహీనత)\b"
         )
-        has_reference = bool(re.search(reference_pattern, lower, re.I))
-        has_continuation_signal = bool(re.search(continuation_pattern, lower, re.I))
+        # Python's \b word boundary does not reliably delimit Telugu-script
+        # tokens, so match Telugu phrases directly without ASCII-style boundaries.
+        telugu_reference = bool(re.search(
+            r"(అతని|అతనికి|అతను|వాడి|వాడు|వాడికి|ఆమె|ఆమెకి|దాని|దానికి|"
+            r"వాళ్ళు|వాళ్లు|వీళ్ళు|వీళ్లు|తన|తనకి|ఇతని|ఇతనికి)",
+            lower,
+        ))
+        telugu_continuation = bool(re.search(
+            r"(ఇంకా|కొంచెం|చెప్పు|చెప్పవా|చెప్పగలవా|చెప్పండి|గురించి|"
+            r"ఏంటి|ఎందుకు|ఎలా|పవర్స్|శక్తులు|బలం|బలహీనత)",
+            lower,
+        ))
+        has_reference = bool(re.search(reference_pattern, lower, re.I)) or telugu_reference
+        has_continuation_signal = bool(re.search(continuation_pattern, lower, re.I)) or telugu_continuation
         followup_candidate = bool(
             has_context
             and len(corrected.split()) <= 18

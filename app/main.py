@@ -850,17 +850,20 @@ async def _chat_message_locked(update: Update, context) -> None:
             log.error("Conversation memory persistence failed (%s)", type(memory_write_exc).__name__)
 
         if live_result and live_result.get("citations"):
-            # Keep references available without turning the reply into a bibliography.
-            source_links = []
-            for source in live_result["citations"][:3]:
-                url = html.escape(source["url"], quote=True)
-                title = html.escape(source["title"][:65])
-                source_links.append(f'<a href="{url}">{title}</a>')
-            await message.reply_text(
-                "🔎 <b>Sources:</b> " + " · ".join(source_links),
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
+            try:
+                # Source links are supplementary; they must not invalidate a delivered answer.
+                source_links = []
+                for source in live_result["citations"][:3]:
+                    url = html.escape(source["url"], quote=True)
+                    title = html.escape(source["title"][:65])
+                    source_links.append(f'<a href="{url}">{title}</a>')
+                await message.reply_text(
+                    "🔎 <b>Sources:</b> " + " · ".join(source_links),
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+            except Exception as citation_exc:
+                log.warning("Source link delivery skipped (%s)", type(citation_exc).__name__)
 
         # Refresh memory after the user has received the answer. Summarization is
         # best-effort: if it fails, the chat reply remains successful.

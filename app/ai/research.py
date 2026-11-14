@@ -261,7 +261,11 @@ class AnimeResearchService:
             )
         )
 
-        anime_scope = explicit_anime_scope or followup_candidate
+        # A character-shaped question is itself a valid anime-domain candidate.
+        # Do not require the character name to exist in a manually curated allowlist:
+        # unfamiliar characters (e.g. Itachi Uchiha) must reach the anime answer path.
+        # Explicit off-topic terms are still checked below and take precedence.
+        anime_scope = explicit_anime_scope or followup_candidate or character_question
         recommendation = bool(re.search(
             r"\b(recommend|recommendations|suggest|similar to|top\s+\d+\s+anime)\b|"
             r"\b(anime|manga)\s+(suggest|recommend)",

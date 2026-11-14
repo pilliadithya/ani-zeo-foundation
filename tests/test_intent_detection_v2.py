@@ -112,3 +112,32 @@ def test_anime_title_lookup_still_routes_to_metadata_flow():
     assert result["intent"] == "anime_question"
     assert result["scope"] == "anime"
     assert AnimeResearchService.extract_title("Tell me about One Piece") == "One Piece"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Who is Itachi Uchiha?",
+        "Who is Kakashi Hatake?",
+        "Who is Madara Uchiha?",
+        "Who are the Akatsuki?",
+    ],
+)
+def test_fresh_character_questions_do_not_require_allowlisted_entities(question):
+    result = AnimeResearchService.detect_intent(question)
+    assert result["intent"] == "character_question"
+    assert result["scope"] == "anime"
+    assert AnimeResearchService.extract_title(question) is None
+
+
+@pytest.mark.parametrize("question", ["Itachi evaru?", "Itachi Uchiha ఎవరు?"])
+def test_tenglish_and_telugu_character_questions_are_in_scope(question):
+    result = AnimeResearchService.detect_intent(question)
+    assert result["intent"] == "character_question"
+    assert result["scope"] == "anime"
+
+
+def test_explicit_offtopic_still_wins_over_character_question_shape():
+    result = AnimeResearchService.detect_intent("Who is Python and how do I code with it?")
+    assert result["scope"] == "redirect"
+    assert result["intent"] == "off_topic"

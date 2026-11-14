@@ -10,6 +10,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -20,12 +21,15 @@ from telegram.ext import (
 )
 
 from app.ai.router import AIRouter
-from app.ai.fact_verifier import validate_generated_answer, verification_fallback
+from app.ai.fact_verifier import validate_generated_answer, verification_fallback, verify_evidence
 from app.ai.research import AnimeResearchService, REDIRECT
 from app.config import get_settings
 from app.db import Database
 from app.handlers import (
     ai_usage_command,
+    handle_onboarding_name,
+    greeting_for_language,
+    language_keyboard,
     consent_callback,
     delete_data_callback,
     delete_data_command,
@@ -284,6 +288,75 @@ def format_inline_markdown(text: str) -> str:
     return text
 
 
+def apply_emoji_style(answer: str, intent: str = 'anime_question') -> str:
+    if not answer or re.search(r'[😀-🙏🌀-🫿]', answer):
+        return answer
+    cues = {'live_news': '📰', 'character_question': '👤', 'watch_order': '📺', 'recommendation': '✨', 'industry_question': '🎬', 'follow_up': '💬', 'anime_question': '🎌', 'greeting': '👋'}
+    emoji = cues.get(intent, '🎌')
+    lines = answer.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip():
+            lines[index] = f'{emoji} {line.lstrip()}'
+            return '\n'.join(lines)
+    return f'{emoji} {answer}'
+
+
+FORMAT_TITLES = {
+    "live_news": "📰 ANIME NEWS",
+    "anime_question": "🎌 ANIME GUIDE",
+    "character_question": "👤 CHARACTER DOSSIER",
+    "watch_order": "📺 WATCH / READ ORDER",
+    "recommendation": "✨ RECOMMENDATIONS",
+    "industry_question": "🎬 INDUSTRY INSIGHT",
+    "follow_up": "💬 CONTINUING THE DISCUSSION",
+}
+
+
+def enforce_response_format(answer: str, intent: str = "anime_question") -> str:
+    """Deterministic final presentation pass shared by every AI provider."""
+    raw = str(answer or "").strip()
+    if not raw:
+        return "I couldn't prepare a clear answer this time. Please try again."
+
+    # Normalise line endings, excessive whitespace and accidental repeated blank lines.
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"[ \t]+$", "", raw, flags=re.M)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    lines = raw.split("\n")
+
+    # Convert common model headings into a consistent, readable hierarchy.
+    normalised = []
+    for line in lines:
+        stripped = line.strip()
+        heading = re.match(r"^#{1,6}\s+(.+)$", stripped)
+        if heading:
+            normalised.append("**" + heading.group(1).strip("* ") + "**")
+        else:
+            normalised.append(stripped)
+    raw = "\n".join(normalised).strip()
+
+    # Structured editorial responses receive a compact title when the model omitted one.
+    if intent in FORMAT_TITLES:
+        first = next((line for line in raw.splitlines() if line.strip()), "")
+        has_title = bool(
+            first.startswith("**")
+            or first.startswith("📰")
+            or first.startswith("🎌")
+            or first.startswith("👤")
+            or first.startswith("📺")
+            or first.startswith("✨")
+            or first.startswith("🎬")
+            or first.startswith("💬")
+        )
+        if not has_title:
+            raw = f"**{FORMAT_TITLES[intent]}**\n\n{raw}"
+
+    # Enforce readable list spacing and prevent a wall of text on mobile.
+    raw = re.sub(r"(?m)(?<!\n)(\s*[•-]\s+)", r"\n\1", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw).strip()
+    return raw
+
+
 def markdown_to_telegram_html(text: str) -> str:
     """Render headings, lists, tables and inline Markdown as Telegram HTML."""
     lines = text.splitlines()
@@ -415,6 +488,15 @@ async def telegram_error_handler(update: object, context) -> None:
         context.application.bot_data.setdefault("failed_update_ids", set()).add(update_id)
 
     error = getattr(context, "error", None)
+    error_text = str(error or "").casefold()
+    # Telegram callback queries expire; retrying the same update can never revive them.
+    if isinstance(error, BadRequest) and (
+        "query is too old" in error_text
+        or "response timeout expired" in error_text
+        or "query id is invalid" in error_text
+    ):
+        log.warning("Expired Telegram callback ignored (update_id=%s)", update_id)
+        return
     log.error(
         "Telegram handler failed (update_id=%s, error_type=%s)",
         update_id,
@@ -432,9 +514,21 @@ async def chat_message(update: Update, context) -> None:
     db = context.application.bot_data["db"]
     profile = await db.get_profile(user.id)
 
+    # Complete the two short onboarding steps before normal chat handling.
+    if profile and profile.get("onboarding_step") == "awaiting_name":
+        if await handle_onboarding_name(update, context):
+            return
+
+    if profile and profile.get("onboarding_step") == "awaiting_language":
+        await message.reply_text(
+            "Choose the language you'd like Ani Zeo to use:",
+            reply_markup=language_keyboard(),
+        )
+        return
+
     if not profile or not profile.get("consented_at"):
         await message.reply_text(
-            "Please use /start and review the consent information first."
+            "Please use /start to read the welcome note and begin onboarding."
         )
         return
 
@@ -461,6 +555,26 @@ async def chat_message(update: Update, context) -> None:
         await message.reply_text(REDIRECT)
         return
 
+    if intent_result["intent"] == "greeting":
+        previous_greeting = next(
+            (
+                item.get("content")
+                for item in reversed(recent_for_scope)
+                if item.get("role") == "assistant"
+            ),
+            None,
+        )
+        greeting = greeting_for_language(
+            profile.get("preferred_language"),
+            profile.get("display_name"),
+            previous_greeting,
+            message.text,
+        )
+        await db.save_message(user.id, "user", message.text)
+        await db.save_message(user.id, "assistant", greeting)
+        await message.reply_text(greeting)
+        return
+
     await db.save_message(user.id, "user", message.text)
 
     try:
@@ -484,23 +598,62 @@ async def chat_message(update: Update, context) -> None:
         history = await db.get_recent_messages(user.id, limit=8)
 
         live_result = None
+        is_historical_request = research._is_historical_query(normalized_text)
         is_live_request = intent_result["intent"] == "live_news" or research.needs_live_search(normalized_text)
-        if is_live_request:
-            live_result = await research.google_grounded_answer(
-                normalized_text, profile.get("preferred_language")
-            )
-            if live_result is None:
-                log.info("Live search primary unavailable; trying sequential backup provider=tavily")
-                live_result = await research.tavily_search_answer(
+        if is_live_request or is_historical_request:
+            if is_live_request:
+                live_result = await research.google_grounded_answer(
                     normalized_text, profile.get("preferred_language")
                 )
             if live_result is None:
-                # Fail closed: never answer a current-news request from stale model memory.
+                log.info("Live search primary unavailable; trying configured sequential search fallback chain")
+                live_result = await research.search_fallback_answer(
+                    normalized_text, profile.get("preferred_language")
+                )
+
+            if live_result is None and is_historical_request:
+                try:
+                    archived = await db.search_research_evidence(normalized_text, limit=5)
+                    archived_verification = verify_evidence(archived, normalized_text, limit=5)
+                    if archived_verification["items"]:
+                        archived_items = archived_verification["items"]
+                        live_result = {
+                            "answer": "",
+                            "citations": [
+                                {
+                                    "title": item["title"],
+                                    "url": item["url"],
+                                    "verification_status": item["verification_status"],
+                                }
+                                for item in archived_items
+                            ],
+                            "evidence": archived_items,
+                            "verification": archived_verification,
+                            "provider": "archive",
+                            "usage": {},
+                        }
+                        log.info("Historical research served from archive sources=%s", len(archived_items))
+                except Exception as archive_exc:
+                    log.warning("Historical research archive lookup failed (%s)", type(archive_exc).__name__)
+
+            if live_result is None:
+                # Fail closed: never answer current or historical research from model memory alone.
                 await message.reply_text(
-                    "I couldn’t verify the latest anime information from current sources right now. "
+                    "I couldn’t verify this anime information from available sources right now. "
                     "Please try again shortly."
                 )
                 return
+
+            if live_result.get("provider") != "archive":
+                try:
+                    stored = await db.store_research_evidence(
+                        live_result.get("evidence") or [],
+                        live_result.get("provider") or "unknown",
+                    )
+                    if stored:
+                        log.info("Anime research archive updated records=%s", stored)
+                except Exception as archive_exc:
+                    log.warning("Anime research archive write skipped (%s)", type(archive_exc).__name__)
 
         metadata = None
         title = None
@@ -536,19 +689,21 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.evidence_context(live_result),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
-                    "This is a current anime research request. Answer from the supplied evidence only. "
+                    + ("This is a historical anime research request. Treat archived sources as historical reporting, not current status. " if is_historical_request else "This is a current anime research request. ")
+                    + "Answer from the supplied evidence only. "
                     + (
                         "BIG THREE RESPONSE FORMAT: Cover One Piece, Naruto/Boruto, and Bleach separately. "
                         "Give one short, useful, recent update for each franchise only when the supplied evidence supports it. "
                         "If no reliable recent update is present for a franchise, say you could not verify a notable update for it; do not invent one. "
-                        "Talk like an anime fan chatting with a friend, not a news article. Use natural English or the user's selected language, "
-                        "a few fitting emojis, and concise explanations. Never pad with unrelated gaming, store, or general entertainment news. "
+                        "Write a polished, compact anime news report: use a clear headline, a short lead, and small sections only when the evidence supports them. "
+                        "State the date and release status only when verified. Separate official confirmation from reporting and rumours. "
+                        "Use natural English or the user's selected language and a few fitting emojis. Never pad with unrelated gaming, store, or general entertainment news. "
                         if re.search(r"\bbig\s*3\b|big three", normalized_text, re.I) else ""
                     )
                     + f"User query: {normalized_text}"
                 ),
                 provider_order=(
-                    ["groq", "openrouter", "gemini"]
+                    ["nvidia", "groq", "openrouter", "gemini"]
                     if live_result.get("provider") == "tavily"
                     else None
                 ),
@@ -556,9 +711,10 @@ async def chat_message(update: Update, context) -> None:
             fact_check = validate_generated_answer(answer, live_result)
             if not fact_check["ok"]:
                 log.warning(
-                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s unsupported_confirmation=%s conflicted_chapters=%s)",
+                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s invalid_dates=%s unsupported_confirmation=%s conflicted_chapters=%s)",
                     fact_check["unsupported_chapters"],
                     fact_check["unsupported_dates"],
+                    fact_check.get("invalid_dates", []),
                     fact_check["unsupported_confirmation"],
                     fact_check["conflicted_chapters"],
                 )
@@ -578,7 +734,15 @@ async def chat_message(update: Update, context) -> None:
                 research_context=research.context_for(metadata),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
-                    f"Corrected query (only obvious typos): {normalized_text}"
+                    + {
+                        "anime_question": "Use an anime profile layout: title, premise, format/status and useful details when supported. ",
+                        "character_question": "Use a character dossier: identity, role, abilities and story context, with spoiler care. ",
+                        "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
+                        "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
+                        "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
+                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into natural Telugu script. This explicit request overrides the saved language preference. Preserve all important details; never show the generic anime-only redirect. " if re.search(r"\b(in|into|to)\s+telugu\b", message.text, re.I) else ("Translate the previous assistant answer into the explicitly requested language and script, preserving all important details. " if re.search(r"\b(in|into|to)\s+(english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else "")),
+                    }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
+                    + f"Corrected query (only obvious typos): {normalized_text}"
                 ),
             )
 
@@ -612,6 +776,8 @@ async def chat_message(update: Update, context) -> None:
             except Exception as exc:
                 log.warning("Telegram anime cover send failed (%s)", type(exc).__name__)
 
+        answer = enforce_response_format(answer, intent_result['intent'])
+        answer = apply_emoji_style(answer, intent_result['intent'])
         await send_formatted_answer(message, answer)
         if live_result and live_result.get("citations"):
             # Keep references available without turning the reply into a bibliography.
@@ -682,7 +848,7 @@ async def lifespan(app: FastAPI):
 
     telegram_app.bot_data["db"] = db
     telegram_app.bot_data["ai"] = AIRouter(settings)
-    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key)
+    telegram_app.bot_data["research"] = AnimeResearchService(settings.gemini_api_key, settings.gemini_model, settings.tavily_api_key, settings.decodo_api_key, settings.langsearch_api_key, settings.search_order, settings.decodo_geo)
 
     # Commands
     telegram_app.add_handler(CommandHandler("start", start))

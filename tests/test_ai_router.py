@@ -1,5 +1,6 @@
+import asyncio
 import pytest
-from app.ai.router import AIRouter
+from app.ai.router import AIRouter, SYSTEM_PROMPT
 class FakeProvider:
     def __init__(self,name,key,response=None,error=None): self.name,self.api_key,self.response,self.error=name,key,response,error
     async def generate(self,messages,timeout,max_tokens):
@@ -455,10 +456,10 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
 
 
 def test_output_budget_scales_with_requested_depth():
-    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) == 180
-    assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) == 650
-    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) == 420
-    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) == 900
+    assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) >= 300
+    assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) > 900
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) > 500
+    assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) > AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}])
 
 
 def test_token_estimate_is_nonzero_and_monotonic():
@@ -521,3 +522,129 @@ def test_compact_system_prompt_reduces_planned_input_tokens():
         "english",
     )
     assert router.estimate_messages_tokens(messages) < 1_300
+
+
+def test_shared_personality_includes_intent_specific_editorial_formats():
+    assert "Anime news" in SYSTEM_PROMPT
+    assert "character dossier" in SYSTEM_PROMPT
+    assert "numbered guide" in SYSTEM_PROMPT
+    assert "curated list" in SYSTEM_PROMPT
+    assert "Casual chat" in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_slow_provider_times_out_and_falls_back_within_global_budget():
+    import asyncio
+    import time
+
+    class SlowProvider:
+        name = "gemini"
+        api_key = "a"
+        async def generate(self, messages, timeout, max_tokens):
+            await asyncio.sleep(1)
+
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq"]
+    settings.ai_timeout_seconds = 0.05
+    settings.ai_total_timeout_seconds = 0.4
+    router = AIRouter(settings)
+    router.MAX_ATTEMPTS = 1
+    router.providers["gemini"] = SlowProvider()
+    router.providers["groq"] = FakeProvider("groq", "b", response="Fast fallback")
+
+    started = time.monotonic()
+    answer, provider, _ = await router.reply(
+        [{"role": "user", "content": "Tell me about One Piece"}],
+        "english",
+    )
+    elapsed = time.monotonic() - started
+
+    assert answer == "Fast fallback"
+    assert provider == "groq"
+    assert elapsed < 0.4
+
+
+@pytest.mark.asyncio
+async def test_router_respects_configured_provider_order_exactly():
+    class RecordingProvider:
+        def __init__(self, name, api_key, response=None, error=None):
+            self.name, self.api_key = name, api_key
+            self.response, self.error = response, error
+
+        async def generate(self, messages, timeout, max_tokens):
+            call_order.append(self.name)
+            if self.error:
+                raise self.error
+            return {"text": self.response, "usage": {}}
+
+    settings = FakeSettings()
+    settings.provider_order = ["nvidia", "groq", "gemini", "openrouter"]
+    settings.ai_timeout_seconds = 1
+    settings.ai_total_timeout_seconds = 20
+    router = AIRouter(settings)
+    call_order = []
+    router.providers["nvidia"] = RecordingProvider("nvidia", "n", error=RuntimeError("NVIDIA unavailable"))
+    router.providers["groq"] = RecordingProvider("groq", "g", error=RuntimeError("Groq unavailable"))
+    router.providers["gemini"] = RecordingProvider("gemini", "m", response="Gemini fallback answer")
+    router.providers["openrouter"] = RecordingProvider("openrouter", "o", response="OpenRouter answer")
+
+    answer, provider, _ = await router.reply([{"role": "user", "content": "Hi"}])
+
+    assert answer == "Gemini fallback answer"
+    assert provider == "gemini"
+    assert call_order == ["nvidia", "groq", "gemini"]
+
+
+def test_short_anime_question_gets_complete_answer_token_budget():
+    assert AIRouter._output_budget([{"role": "user", "content": "Bro One Piece gurinchi cheppu"}]) >= 400
+
+
+def test_output_budget_adapts_to_long_contextual_translation():
+    history = [{'role': 'assistant', 'content': 'One Piece explanation. ' * 100}, {'role': 'user', 'content': 'Bro in Telugu'}]
+    assert AIRouter._output_budget(history) > AIRouter._output_budget([{'role': 'user', 'content': 'One Piece'}])
+
+
+@pytest.mark.asyncio
+async def test_truncated_provider_response_is_rejected_and_falls_back():
+    settings = FakeSettings()
+    settings.provider_order = ["gemini", "groq"]
+    router = AIRouter(settings)
+    router.FAST_PROVIDER_ORDER = ("gemini", "groq")
+    router.providers["gemini"] = FakeProvider(
+        "gemini", "a",
+        response={"text": "This is only a partial answer", "finish_reason": "MAX_TOKENS"},
+    )
+    router.providers["groq"] = FakeProvider(
+        "groq", "b",
+        response={"text": "This is the complete fallback answer", "finish_reason": "stop"},
+    )
+
+    answer, provider, usage = await router.reply(
+        [{"role": "user", "content": "Explain One Piece"}],
+        "english",
+    )
+
+    assert answer == "This is the complete fallback answer"
+    assert provider == "groq"
+    assert usage["finish_reason"] == "stop"
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    ["length", "MAX_TOKENS", "max_output_tokens", "token_limit"],
+)
+def test_truncated_provider_result_is_rejected(finish_reason):
+    with pytest.raises(RuntimeError, match="truncated response"):
+        AIRouter._normalize_provider_result(
+            {"text": "partial answer", "finish_reason": finish_reason},
+            "gemini",
+        )
+
+
+def test_normal_provider_stop_result_is_accepted():
+    result = AIRouter._normalize_provider_result(
+        {"text": "Complete answer", "finish_reason": "STOP"},
+        "gemini",
+    )
+    assert result["text"] == "Complete answer"
+    assert result["finish_reason"] == "STOP"

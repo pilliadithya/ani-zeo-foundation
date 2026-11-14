@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -40,12 +41,37 @@ natural. Tenglish is spoken Telugu-first with natural English code-switching in 
 Telangana-friendly phrasing. Hinglish is Hindi-led; Tanglish is Tamil-led. These are natural spoken
 styles, not word-for-word translations. Use slang and emojis naturally, never mechanically.
 
-PRESENTATION
-Sound like an anime friend who knows the subject, not a newspaper, search engine or corporate bot.
-Use short paragraphs. Use headings, bullets and lists only when useful. Highlight important facts
-selectively. Use a few relevant emojis. Warn before major spoilers when the user's progress is unknown.
-For streaming, distinguish dub/sub and streaming/rental/purchase; never claim regional availability
-without current evidence.
+PRESENTATION — MANDATORY FOR EVERY MODEL PROVIDER
+These rules apply identically to Gemini, NVIDIA, Groq, OpenRouter and every fallback model.
+Never return an unformatted wall of text for a substantive answer. Choose the best presentation
+for the user's intent, language, requested depth and conversation context. Formatting is compulsory,
+but do not add empty sections or decorative clutter.
+Use mobile-first paragraphs, descriptive headings, consistent bullets/numbering, selective bold
+for key names/dates/statuses, and whitespace between sections. Keep tables only when genuinely
+useful; otherwise use compact labelled bullets because Telegram is a narrow screen. Include a brief
+title for structured guides/reports, but do not force titles onto greetings or one-line casual replies.
+Use 3–4 relevant emojis naturally across substantive answers; one is enough for a short casual reply.
+Adapt style: news brief, anime profile, character dossier, numbered watch/read guide, curated
+recommendation cards, balanced comparison, spoiler-aware episode/chapter breakdown, creator/studio
+profile, or concise conversational answer. Match the user's language and script. Keep the answer
+complete at the requested depth, not artificially short. Warn before major spoilers when progress is
+unknown. For streaming, distinguish dub/sub and streaming/rental/purchase; never claim regional
+availability without current evidence.
+Never use Markdown constructs that are likely to break Telegram rendering.
+
+EDITORIAL FORMATS
+Choose the layout that fits the user's intent:
+- Anime news: a clear headline, short lead, publication/release date when supported, concise details,
+  and a clear distinction between confirmed facts and reporting or rumours.
+- Anime information: a compact title profile with premise, format, status, genres and related works
+  only when supported by evidence.
+- Character analysis: a character dossier with role, abilities, motivations and story context.
+- Watch/read order: a numbered guide with short explanations and optional skip notes.
+- Recommendations: a curated list with a distinct reason for each recommendation.
+- Comparisons: a balanced side-by-side comparison.
+- Episode or chapter explanation: a structured breakdown with spoiler awareness.
+- Casual chat: a short, natural conversation without forced article headings.
+Never invent empty sections to satisfy a template. Do not repeat the headline in the opening paragraph.
 
 MEMORY
 Use explicit user-stated facts only when relevant. Do not infer preferences, motives or beliefs.
@@ -60,11 +86,12 @@ class AIRouter:
     SUMMARY_MAX_CHARS = 1_200
 
     # Provider-specific timeouts.
-    NVIDIA_TIMEOUT = 60.0
-    NVIDIA_RETRY_TIMEOUT = 35.0
+    NVIDIA_TIMEOUT = 5.0
+    NVIDIA_RETRY_TIMEOUT = 4.0
 
     # Only one retry per provider request.
-    MAX_ATTEMPTS = 2
+    MAX_ATTEMPTS = 1
+    MAX_PROVIDER_ATTEMPT_SECONDS = 7.0
 
     # Retry only temporary failures.
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -79,7 +106,14 @@ class AIRouter:
 
         aliases = {
             "telugu": "Tenglish (natural Telugu-English in Latin script)",
-            "tenglish": "natural Telangana-friendly spoken Tenglish in Latin script",
+            "tenglish": (
+                "STRICT Tenglish for every answer: write spoken Telangana Telugu sentence structure in Latin/Roman letters, "
+                "naturally mixing useful English nouns/technical terms. Do NOT answer in English with a few Telugu words added. "
+                "Do NOT use Telugu Unicode script. Romanise Telugu words as people commonly type them. "
+                "Example style: 'One Piece lo Luffy tana crew tho Grand Line journey start chesthadu. Story lo adventure, "
+                "friendship, world-building chala strong ga untayi.' Keep names and technical terms in English. "
+                "Before sending, check that the answer sounds like spoken Telugu written in English letters."
+            ),
             "hinglish": "natural Hindi-English Hinglish in Latin script",
             "hindi": "natural Hindi-English Hinglish in Latin script",
             "tanglish": "natural spoken Tamil-English Tanglish in Latin script",
@@ -107,31 +141,29 @@ class AIRouter:
 
     @classmethod
     def _output_budget(cls, history: list[dict]) -> int:
-        latest = cls._latest_user_text(history).lower()
-        deep_terms = (
-            'in detail', 'detailed', 'deep dive', 'comprehensive',
-            'full analysis', 'complete guide', 'step by step',
-            'step-by-step', 'research', 'elaborate', 'explain everything',
-            'full explanation', 'long answer',
-        )
-        learn_more_terms = (
-            'tell me more', 'more information', 'more details', 'go deeper',
-            'why', 'how did', 'how does', 'explain', 'break it down',
-            'inka cheppu', 'inka explain', 'konchem detail', 'detail ga',
-            'aur batao', 'thoda detail', 'konjam detail',
-        )
-        list_terms = ('top 10', 'top 5', 'list of', 'watch order', 'recommendations')
-        if ('big three' in latest or 'big 3' in latest or 'big-three' in latest):
-            return 650
-        if any(term in latest for term in deep_terms):
-            return 900
-        if any(term in latest for term in learn_more_terms):
-            return 420
-        if any(term in latest for term in list_terms):
-            return 500
-        if len(latest.split()) <= 5:
-            return 180
-        return 280
+        """Estimate answer allowance from task complexity and recent context."""
+        latest = cls._latest_user_text(history).casefold()
+        context = " ".join(
+            str(item.get("content") or "")[:700]
+            for item in (history or [])[-5:]
+            if isinstance(item, dict)
+        ).casefold()
+        allowance = 850
+        if re.search(r"\b(why|how|analysis|compare|difference|explain|break down)\b", latest):
+            allowance += 220
+        if re.search(r"\b(detail|detailed|deep dive|comprehensive|complete guide|step by step|in depth|full explanation)\b", latest):
+            allowance += 420
+        if re.search(r"\b(top \d+|list|recommend|watch order|read order|all arcs|all seasons)\b", latest):
+            allowance += 300
+        if re.search(r"\b(news|latest|today|current|chapter|episode|release|update)\b", latest):
+            allowance += 180
+        if re.search(r"\b(big three|big 3)\b", latest):
+            allowance += 300
+        if re.search(r"\b(in telugu|in english|in hindi|translate|translation)\b", latest):
+            allowance += min(500, max(160, len(context) // 5))
+        if len(latest) > 500:
+            allowance += min(300, len(latest) // 8)
+        return min(1800, max(300, allowance))
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -203,8 +235,9 @@ class AIRouter:
                 "or secondary report into an official confirmation. If sources conflict or a detail is missing, "
                 "say so briefly. Do not copy article headlines or raw snippets. Explain the useful point in a "
                 "natural anime-fan conversation, match the user's language, use a few relevant emojis, and keep "
-                "the answer concise unless the user asks for depth. Do not add facts from model memory to current "
-                "news. The source links are sent separately by the bot.\n"
+                "the answer concise unless the user asks for depth. For news, use a polished headline and "
+                "short report structure rather than a generic chat response. Do not add facts from model memory "
+                "to current news. The source links are sent separately by the bot.\n"
                 + str(research_context)[:2_400]
             )
 
@@ -305,7 +338,7 @@ class AIRouter:
 
         return isinstance(
             exc,
-            (httpx.TimeoutException, httpx.NetworkError)
+            (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError)
         )
 
     @staticmethod
@@ -340,7 +373,7 @@ class AIRouter:
 
             return self.NVIDIA_RETRY_TIMEOUT
 
-        return float(self.settings.ai_timeout_seconds)
+        return min(float(self.settings.ai_timeout_seconds), self.MAX_PROVIDER_ATTEMPT_SECONDS)
 
     @staticmethod
     def _normalize_provider_result(result, provider_name: str) -> dict:
@@ -352,17 +385,76 @@ class AIRouter:
         text = result.get('text')
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError(f'{provider_name} returned an empty response')
+        finish_reason = result.get('finish_reason')
+        # A non-empty response can still be incomplete. Never present a token-
+        # capped generation as a finished answer; let the router try a backup.
+        normalized_finish = str(finish_reason or '').strip().casefold()
+        incomplete_reasons = {
+            'length', 'max_tokens', 'max_output_tokens', 'max_output',
+            'max_completion_tokens', 'token_limit', 'max_token',
+        }
+        if normalized_finish in incomplete_reasons:
+            raise RuntimeError(
+                f'{provider_name} returned a truncated response '
+                f'(finish_reason={normalized_finish})'
+            )
         usage = result.get('usage')
         return {'text': text.strip(), 'usage': usage if isinstance(usage, dict) else {},
-                'model': result.get('model'), 'finish_reason': result.get('finish_reason')}
+                'model': result.get('model'), 'finish_reason': finish_reason}
 
-    async def _call_provider(self, name, provider, messages, output_tokens):
+    async def _call_provider(self, name, provider, messages, output_tokens, deadline=None):
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             timeout = self._provider_timeout(name, attempt)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.05:
+                    raise asyncio.TimeoutError("AI response time budget exhausted")
+                timeout = min(timeout, remaining)
             started = time.monotonic()
             try:
-                raw_result = await provider.generate(messages, timeout, output_tokens)
-                result = self._normalize_provider_result(raw_result, name)
+                raw_result = await asyncio.wait_for(
+                    provider.generate(messages, timeout, output_tokens),
+                    timeout=timeout,
+                )
+                try:
+                    result = self._normalize_provider_result(raw_result, name)
+                except RuntimeError as truncation_error:
+                    # Groq can finish with finish_reason=length when the requested
+                    # completion budget is too small. Retry once with a larger cap
+                    # if the shared request deadline still leaves room.
+                    max_configured_tokens = max(
+                        output_tokens + 1,
+                        int(getattr(
+                            self.settings,
+                            "ai_groq_retry_max_output_tokens",
+                            1800,
+                        )),
+                    )
+                    if (
+                        name != "groq"
+                        or "truncated response" not in str(truncation_error).casefold()
+                        or output_tokens >= max_configured_tokens
+                    ):
+                        raise
+                    retry_tokens = min(
+                        max(output_tokens + 400, output_tokens * 2),
+                        max_configured_tokens,
+                    )
+                    retry_timeout = timeout
+                    if deadline is not None:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.75:
+                            raise
+                        retry_timeout = min(retry_timeout, remaining)
+                    log.warning(
+                        "Retrying truncated Groq response with larger output budget old_tokens=%s new_tokens=%s",
+                        output_tokens, retry_tokens,
+                    )
+                    retry_raw = await asyncio.wait_for(
+                        provider.generate(messages, retry_timeout, retry_tokens),
+                        timeout=retry_timeout,
+                    )
+                    result = self._normalize_provider_result(retry_raw, name)
                 elapsed = time.monotonic() - started
                 usage = dict(result['usage'])
                 usage.update({
@@ -383,13 +475,40 @@ class AIRouter:
             except Exception as exc:
                 elapsed = time.monotonic() - started
                 status = self._status_code(exc)
-                log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, elapsed=%.2fs)',
-                            name, attempt, type(exc).__name__, status, elapsed)
+                if name == "groq" and isinstance(exc, httpx.HTTPStatusError):
+                    response = exc.response
+                    headers = response.headers
+                    log.warning(
+                        "Groq HTTP failure status=%s retry_after=%s remaining_requests=%s "
+                        "remaining_tokens=%s reset_requests=%s reset_tokens=%s",
+                        status,
+                        headers.get("retry-after"),
+                        headers.get("x-ratelimit-remaining-requests"),
+                        headers.get("x-ratelimit-remaining-tokens"),
+                        headers.get("x-ratelimit-reset-requests"),
+                        headers.get("x-ratelimit-reset-tokens"),
+                    )
+                log.warning('AI provider %s failed (attempt=%s, type=%s, status=%s, detail=%s, elapsed=%.2fs)',
+                            name, attempt, type(exc).__name__, status, str(exc)[:180], elapsed)
+                if name == "groq" and status == 429:
+                    response = getattr(exc, "response", None)
+                    headers = getattr(response, "headers", {}) or {}
+                    log.warning(
+                        "Groq rate limit confirmed retry_after=%s remaining_requests=%s remaining_tokens=%s reset_requests=%s reset_tokens=%s",
+                        headers.get("retry-after"),
+                        headers.get("x-ratelimit-remaining-requests"),
+                        headers.get("x-ratelimit-remaining-tokens"),
+                        headers.get("x-ratelimit-reset-requests"),
+                        headers.get("x-ratelimit-reset-tokens"),
+                    )
                 if attempt >= self.MAX_ATTEMPTS or not self._is_retryable(exc):
                     raise
                 delay = self._retry_delay(exc, attempt)
                 if delay is None:
                     log.warning('Retrying provider %s skipped because Retry-After exceeds allowed wait', name)
+                    raise
+                if deadline is not None and time.monotonic() + delay + 0.05 >= deadline:
+                    log.warning('Retrying provider %s skipped because the total response budget is nearly exhausted', name)
                     raise
                 log.info('Retrying AI provider %s after %.1f seconds', name, delay)
                 await asyncio.sleep(delay)
@@ -397,20 +516,40 @@ class AIRouter:
 
     async def _generate_with_fallback(self, messages, compact_messages, output_tokens, provider_order=None):
         failures = []
-        selected_order = provider_order or self.settings.provider_order
+        configured_order = provider_order or self.settings.provider_order
+        # The configured order is authoritative. Do not silently promote providers:
+        # operators use this order to test a primary provider and control fallbacks.
+        selected_order = list(dict.fromkeys(
+            str(name).strip().lower()
+            for name in configured_order
+            if str(name).strip()
+        ))
+        total_timeout = max(12.0, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
+        deadline = time.monotonic() + total_timeout
         for name in selected_order:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.05:
+                log.warning("AI response budget exhausted before provider=%s", name)
+                break
             provider = self.providers.get(name)
             if not provider or not provider.api_key:
                 continue
             try:
-                result = await self._call_provider(name, provider, messages, output_tokens)
+                result = await self._call_provider(name, provider, messages, output_tokens, deadline=deadline)
                 return result['text'], name, result['usage']
             except Exception as exc:
                 status = self._status_code(exc)
                 if status == 413 and compact_messages:
                     try:
                         log.info('Retrying provider %s with compact conversation', name)
-                        raw = await provider.generate(compact_messages, self._provider_timeout(name, 2), min(output_tokens, 300))
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.05:
+                            raise asyncio.TimeoutError("AI response time budget exhausted")
+                        compact_timeout = min(self._provider_timeout(name, 2), remaining)
+                        raw = await asyncio.wait_for(
+                            provider.generate(compact_messages, compact_timeout, min(output_tokens, 300)),
+                            timeout=compact_timeout,
+                        )
                         result = self._normalize_provider_result(raw, name)
                         usage = result['usage']
                         log.info('AI usage provider=%s retry=compact input_tokens=%s output_tokens=%s estimated_input_tokens=%s',

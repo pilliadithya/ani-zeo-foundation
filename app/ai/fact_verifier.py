@@ -4,6 +4,7 @@ This layer does not claim that a source is infallible. It labels evidence streng
 rejects malformed or off-topic sources, and prevents snippets from being called
 officially confirmed unless they come from a recognized primary source.
 """
+from datetime import date
 from urllib.parse import urlparse
 import re
 
@@ -15,13 +16,27 @@ PRIMARY_DOMAINS = {
     "viz.com",
     "vizmedia.com",
     "shueisha.co.jp",
-    "crunchyroll.com",
     "toei-animation.com",
     "pierrot.jp",
     "aniplex.co.jp",
     "kodansha.co.jp",
     "naruto-official.com",
     "bleach-anime.com",
+    "mappa.co.jp",
+    "ufotable.com",
+    "kyotoanimation.co.jp",
+    "ghibli.jp",
+    "witstudio.co.jp",
+    "bones.co.jp",
+    "cloverworks.co.jp",
+    "production-ig.co.jp",
+    "a1p.jp",
+    "bnfw.co.jp",
+    "kadokawa.co.jp",
+    "shogakukan.co.jp",
+    "hakusensha.co.jp",
+    "square-enix.com",
+    "ponycanyon.co.jp",
 }
 
 REPUTABLE_NEWS_DOMAINS = {
@@ -32,11 +47,21 @@ REPUTABLE_NEWS_DOMAINS = {
     "crunchyroll.com",
     "comicbook.com",
     "ign.com",
+    "variety.com",
+    "deadline.com",
+    "hollywoodreporter.com",
+    "polygon.com",
+    "anitrendz.com",
 }
 
 ANIME_TERMS = {
-    "anime", "manga", "one piece", "naruto", "boruto", "bleach",
-    "shonen jump", "shueisha", "crunchyroll", "toei animation",
+    "anime", "manga", "manhwa", "manhua", "light novel", "japanese animation",
+    "one piece", "naruto", "boruto", "bleach", "dragon ball", "jujutsu kaisen",
+    "demon slayer", "attack on titan", "frieren", "solo leveling",
+    "shonen jump", "shueisha", "manga plus", "viz media", "crunchyroll",
+    "toei animation", "mappa", "ufotable", "kyoto animation", "studio ghibli",
+    "wit studio", "bones", "cloverworks", "production i.g", "a-1 pictures",
+    "aniplex", "kadokawa", "kodansha", "seiyuu", "voice actor",
 }
 
 
@@ -89,6 +114,7 @@ def _chapter_date_claims(items: list[dict]) -> dict:
 
 
 def _date_keys(text: str) -> set[str]:
+    """Extract only calendar-valid dates so impossible dates cannot verify claims."""
     month_names = {
         "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
         "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
@@ -102,11 +128,57 @@ def _date_keys(text: str) -> set[str]:
         text,
     ):
         month = month_names.get(match.group(1).lower())
-        if month:
-            keys.add(f"{match.group(3) or ''}-{month:02d}-{int(match.group(2)):02d}")
+        day = int(match.group(2))
+        year_text = match.group(3)
+        if not month:
+            continue
+        try:
+            if year_text:
+                date(int(year_text), month, day)
+            elif day < 1 or day > 31:
+                continue
+        except ValueError:
+            continue
+        keys.add(f"{year_text or ''}-{month:02d}-{day:02d}")
+
     for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
-        keys.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+        year, month, day = map(int, match.groups())
+        try:
+            date(year, month, day)
+        except ValueError:
+            continue
+        keys.add(f"{year:04d}-{month:02d}-{day:02d}")
     return keys
+
+
+def _invalid_date_claims(text: str) -> list[str]:
+    """Return explicitly written dates that are impossible on the calendar."""
+    invalid = []
+    month_names = {
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
+        "july": 7, "aug": 8, "august": 8, "sep": 9, "september": 9,
+        "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12,
+        "december": 12,
+    }
+    for match in re.finditer(
+        r"\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b",
+        text,
+    ):
+        month = month_names.get(match.group(1).lower())
+        if not month:
+            continue
+        year = int(match.group(3) or 2000)
+        try:
+            date(year, month, int(match.group(2)))
+        except ValueError:
+            invalid.append(match.group(0))
+    for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
+        try:
+            date(*map(int, match.groups()))
+        except ValueError:
+            invalid.append(match.group(0))
+    return sorted(set(invalid))
 
 
 def validate_generated_answer(answer: str, research_result: dict) -> dict:
@@ -122,6 +194,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(
         item.get("verification_status") in {"primary_source", "grounding_support_passed"}
@@ -146,9 +219,10 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or unsupported_confirmation or conflicted_chapters),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
+        "invalid_dates": invalid_dates,
         "unsupported_confirmation": unsupported_confirmation,
         "conflicted_chapters": conflicted_chapters,
     }
@@ -165,6 +239,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if len(word) > 2 and word.casefold() not in {
             "latest", "update", "updates", "news", "anime", "manga",
             "confirmed", "today", "recent", "about", "what", "tell", "big", "three", "give", "get",
+            "history", "historical", "from", "year",
         }
     }
     if re.search(r"\bbig\s*3\b|big three", query, re.I):
@@ -185,7 +260,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("duplicate_url")
             continue
 
-        haystack = f"{title} {snippet} {url}".casefold()
+        haystack = f"{title} {snippet} {item.get('published') or item.get('published_date') or ''} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)
         query_relevant = not query_terms or any(term in haystack or term.rstrip('s') in haystack for term in query_terms)
         if (require_anime_relevance and not anime_relevant) or not query_relevant:
@@ -210,6 +285,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             "snippet": snippet[:900],
             "domain": host,
             "published": str(item.get("published") or item.get("published_date") or "")[:32],
+            "last_verified_at": str(item.get("last_verified_at") or "")[:40],
             "verification_status": status,
             "search_score": score if isinstance(score, (int, float)) else None,
         })

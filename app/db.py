@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import urlparse
 
 import asyncpg
 from app.config import Settings
@@ -80,12 +81,13 @@ class Database:
             safe_label,
         )
 
-    async def ensure_profile(self, user_id: int, username: str | None, display_name: str | None):
+    async def ensure_profile(self, user_id: int, username: str | None = None, display_name: str | None = None):
+        """Create the minimum profile using only Telegram's required numeric account ID."""
         await self._pool().execute(
-            """insert into public.user_profiles (telegram_user_id, username, display_name)
-            values ($1,$2,$3) on conflict (telegram_user_id) do update set
-            username=excluded.username, display_name=excluded.display_name, updated_at=now()""",
-            user_id, username, display_name,
+            """insert into public.user_profiles (telegram_user_id)
+            values ($1) on conflict (telegram_user_id) do update set
+            updated_at=now()""",
+            user_id,
         )
 
     async def get_profile(self, user_id: int):
@@ -96,8 +98,23 @@ class Database:
 
     async def set_consent(self, user_id: int, version="v1"):
         await self._pool().execute(
-            "update public.user_profiles set consent_version=$2, consented_at=now(), updated_at=now() where telegram_user_id=$1",
+            "update public.user_profiles set consent_version=$2, consented_at=now(), onboarding_step='awaiting_name', updated_at=now() where telegram_user_id=$1",
             user_id, version,
+        )
+
+    async def set_display_name(self, user_id: int, display_name: str):
+        await self._pool().execute(
+            "update public.user_profiles set display_name=$2, updated_at=now() where telegram_user_id=$1",
+            user_id, display_name[:40],
+        )
+
+    async def set_onboarding_step(self, user_id: int, step: str):
+        allowed = {"welcome", "awaiting_name", "awaiting_language", "completed", "declined"}
+        if step not in allowed:
+            raise ValueError("Unsupported onboarding step")
+        await self._pool().execute(
+            "update public.user_profiles set onboarding_step=$2, updated_at=now() where telegram_user_id=$1",
+            user_id, step,
         )
 
     async def set_language(self, user_id: int, language: str):
@@ -107,6 +124,74 @@ class Database:
             "update public.user_profiles set preferred_language=$2, updated_at=now() where telegram_user_id=$1",
             user_id, language,
         )
+
+    async def store_research_evidence(self, evidence: list[dict], provider: str) -> int:
+        """Store short, source-linked anime excerpts for historical retrieval; never store user queries."""
+        allowed = {
+            "primary_source",
+            "reputable_reporting",
+            "unverified_publisher",
+            "grounding_support_passed",
+        }
+        stored = 0
+        for item in (evidence or [])[:5]:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            title = str(item.get("title") or "").strip()[:180]
+            snippet = str(item.get("snippet") or "").strip()[:400]
+            status = str(item.get("verification_status") or "")
+            domain = str(item.get("domain") or urlparse(url).hostname or "").lower()[:160]
+            if (
+                not url.startswith("https://")
+                or not title
+                or not snippet
+                or not domain
+                or status not in allowed
+            ):
+                continue
+            await self._pool().execute(
+                """insert into public.anime_research_evidence
+                    (source_url, source_domain, title, snippet, published_at,
+                     verification_status, provider, last_verified_at)
+                values ($1,$2,$3,$4,$5,$6,$7,now())
+                on conflict (source_url) do update set
+                    source_domain=excluded.source_domain,
+                    title=excluded.title,
+                    snippet=excluded.snippet,
+                    published_at=excluded.published_at,
+                    verification_status=excluded.verification_status,
+                    provider=excluded.provider,
+                    last_verified_at=now()""",
+                url,
+                domain,
+                title,
+                snippet,
+                str(item.get("published") or "")[:40] or None,
+                status,
+                str(provider or "unknown")[:40],
+            )
+            stored += 1
+        return stored
+
+    async def search_research_evidence(self, query: str, limit: int = 5):
+        """Retrieve previously verified anime source excerpts for explicit historical queries."""
+        text = str(query or "").strip()[:300]
+        if not text:
+            return []
+        safe_limit = max(1, min(int(limit), 8))
+        rows = await self._pool().fetch(
+            """select title, source_url as url, snippet, source_domain as domain,
+                      published_at as published, verification_status, last_verified_at
+               from public.anime_research_evidence
+               where to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(snippet, ''))
+                     @@ websearch_to_tsquery('simple', $1)
+               order by last_verified_at desc
+               limit $2""",
+            text,
+            safe_limit,
+        )
+        return [dict(row) for row in rows]
 
     async def log_ai_usage(self, user_id: int, provider: str, usage: dict, latency_ms: int | None = None):
         """Persist token telemetry only; never store prompts, answers, or credentials."""

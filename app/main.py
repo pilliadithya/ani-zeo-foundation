@@ -815,33 +815,39 @@ async def _chat_message_locked(update: Update, context) -> None:
         answer = apply_emoji_style(answer, intent_result['intent'])
         await send_formatted_answer(message, answer)
 
-        # Commit the transcript only after Telegram confirms the main answer was sent.
-        saved = await db.save_exchange(
-            user.id, message.text, answer, getattr(update, "update_id", None)
-        )
-        if saved:
-            detected_topic = title or research.extract_title(normalized_text)
-            if not detected_topic:
-                detected_topic = next(
-                    (entity.title() for entity in research.INTENT_ENTITIES
-                     if entity in normalized_text.casefold()),
-                    None,
-                )
-            await db.update_conversation_state(
-                user.id,
-                active_topic=(
-                    detected_topic
-                    or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
-                ),
-                resolved_entities=(
-                    [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}]
-                    if detected_topic else (
-                        conversation_state.get("resolved_entities", [])
-                        if intent_result["intent"] == "follow_up" else []
-                    )
-                ),
-                update_id=getattr(update, "update_id", None),
+        try:
+            # Commit the transcript only after Telegram confirms the main answer was sent.
+            saved = await db.save_exchange(
+                user.id, message.text, answer, getattr(update, "update_id", None)
             )
+            if saved:
+                detected_topic = title or research.extract_title(normalized_text)
+                if not detected_topic:
+                    detected_topic = next(
+                        (entity.title() for entity in research.INTENT_ENTITIES
+                         if entity in normalized_text.casefold()),
+                        None,
+                    )
+                await db.update_conversation_state(
+                    user.id,
+                    active_topic=(
+                        detected_topic
+                        or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
+                    ),
+                    resolved_entities=(
+                        [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}]
+                        if detected_topic else (
+                            conversation_state.get("resolved_entities", [])
+                            if intent_result["intent"] == "follow_up" else []
+                        )
+                    ),
+                    update_id=getattr(update, "update_id", None),
+                )
+    
+    
+        except Exception as memory_write_exc:
+            # The user already received the answer; never misreport this as an AI failure.
+            log.error("Conversation memory persistence failed (%s)", type(memory_write_exc).__name__)
 
         if live_result and live_result.get("citations"):
             # Keep references available without turning the reply into a bibliography.

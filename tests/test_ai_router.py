@@ -482,6 +482,7 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
 
 def test_output_budget_scales_with_requested_depth():
     assert AIRouter._output_budget([{"role": "user", "content": "Hi bro"}]) >= 300
+    assert AIRouter._output_budget([{"role": "user", "content": "Who is Luffy's father?"}]) <= 400
     assert AIRouter._output_budget([{"role": "user", "content": "Give me latest Big Three anime updates"}]) > 900
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}]) > 500
     assert AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5 in detail"}]) > AIRouter._output_budget([{"role": "user", "content": "Explain Gear 5"}])
@@ -880,3 +881,28 @@ def test_active_topic_snapshot_keeps_short_followup_in_anime_scope():
     result = AnimeResearchService.detect_intent("What about his mother?", history)
     assert result["intent"] == "follow_up"
     assert result["scope"] == "anime"
+
+
+def test_simple_character_question_defaults_to_concise_companion_answer():
+    assert "1–3 short sentences by default" in SYSTEM_PROMPT
+    assert "NOT a dossier" in SYSTEM_PROMPT
+    assert "do not add unrelated abilities" in SYSTEM_PROMPT
+    assert "Use at most one relevant emoji by default" in SYSTEM_PROMPT
+
+
+def test_clear_english_turn_overrides_saved_tenglish_preference():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Who is Luffy's father?"}],
+        "tenglish",
+    )
+    assert "USER'S SELECTED LANGUAGE: casual conversational English" in messages[0]["content"]
+
+
+def test_tenglish_turn_keeps_saved_tenglish_preference():
+    router = AIRouter(FakeSettings())
+    messages = router._build_messages(
+        [{"role": "user", "content": "Luffy ki father evaru?"}],
+        "tenglish",
+    )
+    assert "STRICT Tenglish" in messages[0]["content"]

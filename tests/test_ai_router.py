@@ -1,4 +1,5 @@
 import asyncio
+import time
 import pytest
 from app.ai.router import AIRouter, SYSTEM_PROMPT
 class FakeProvider:

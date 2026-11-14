@@ -136,17 +136,26 @@ class AnimeResearchService:
         # A recent unrelated user request ends the previous anime context. This
         # prevents an old anime mention from capturing a later unrelated question.
         context_items = []
-        for item in reversed(recent):
-            content = item["content"].strip()
-            if item["role"] == "user" and (
-                GREETING.fullmatch(content)
-                or OFF_TOPIC.search(content)
-            ):
-                break
-            context_items.append(item)
-            if len(context_items) >= 6:
-                break
-        context_items.reverse()
+        last_user = next((item for item in reversed(recent) if item["role"] == "user"), None)
+        context_blocked = bool(
+            last_user
+            and (
+                GREETING.fullmatch(last_user["content"].strip())
+                or OFF_TOPIC.search(last_user["content"].strip())
+            )
+        )
+        if not context_blocked:
+            for item in reversed(recent):
+                content = item["content"].strip()
+                if item["role"] == "user" and (
+                    GREETING.fullmatch(content)
+                    or OFF_TOPIC.search(content)
+                ):
+                    break
+                context_items.append(item)
+                if len(context_items) >= 6:
+                    break
+            context_items.reverse()
         context_text = " ".join(item["content"][:500] for item in context_items).casefold()
         recent_assistant = any(item["role"] == "assistant" for item in context_items)
 

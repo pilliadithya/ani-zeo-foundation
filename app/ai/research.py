@@ -177,6 +177,10 @@ class AnimeResearchService:
             intent = "recommendation"
         elif re.search(r"\b(watch order|watching order|chronological order|release order|read order)\b", lower):
             intent = "watch_order"
+        elif re.search(r"\b(compare|comparison|versus|vs\.?|difference between|better than|stronger than)\b", lower):
+            intent = "comparison"
+        elif re.search(r"\b(episode|chapter|arc|ending|recap|plot twist|what happened in)\b", lower):
+            intent = "episode_chapter"
         elif re.search(r"\b(who is|character|powers|ability|backstory|relationship)\b", lower):
             intent = "character_question"
         elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):

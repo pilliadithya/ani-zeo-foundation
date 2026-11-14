@@ -224,23 +224,9 @@ class AIRouter:
         research_context=None,
         intent_context=None
     ):
-        # A clearly English current message temporarily takes precedence over a saved
-        # Tenglish preference; transliterated Telugu markers preserve Tenglish mode.
-        latest_text = self._latest_user_text(history).casefold()
-        telugu_markers = re.search(
-            r"\b(enti|ela|enduku|cheppu|cheppava|undhi|undi|avuthundi|chesadu|chesindi|"
-            r"lo|ki|kosam|kani|ante|nuvvu|meeru|naaku|naku|evaru|emiti)\\b",
-            latest_text,
-        )
-        english_markers = re.search(
-            r"\b(who|what|where|when|why|how|is|are|was|were|does|do|did|"
-            r"tell|explain|please|about|the|and|with)\\b",
-            latest_text,
-        )
-        turn_language = language
-        if english_markers and not telugu_markers:
-            turn_language = "english"
-        system = SYSTEM_PROMPT + self._language_instruction(turn_language)
+        # The user's saved language selection is authoritative for every turn.
+        # Message wording must never silently override an explicit profile preference.
+        system = SYSTEM_PROMPT + self._language_instruction(language)
 
         if research_context:
             system += (

@@ -483,7 +483,7 @@ async def send_formatted_answer(message, answer: str) -> None:
 
 
 
-# Telegram updates for the same user must not build competing context snapshots
+# Serialize each user's Telegram updates before assembling a shared context snapshot
 # inside this worker. Database update claims still protect duplicate webhook IDs.
 _USER_CONVERSATION_LOCKS: dict[int, asyncio.Lock] = {}
 

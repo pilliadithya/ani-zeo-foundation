@@ -276,8 +276,10 @@ class AnimeResearchService:
             lower,
         ))
         character_question = character_terms or bool(re.search(
-            r"\b(who is|who are|character|powers?|ability|abilities|backstory|relationship)\b",
-            lower,
+            r"\b(who is|who are|evaru|evadu|character|powers?|ability|abilities|backstory|relationship)\b|"
+            r"(ఎవరు|ఎవడ|పాత్ర|పవర్స్|శక్తులు|బలం|బలహీనత)",
+            corrected,
+            re.I,
         ))
         industry_question = bool(re.search(
             r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b",

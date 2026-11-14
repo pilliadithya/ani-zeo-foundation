@@ -244,6 +244,68 @@ class Database:
             user_id, role, content[:12000],
         )
 
+    async def save_exchange(self, user_id: int, user_text: str, assistant_text: str, update_id: int | None = None):
+        """Persist only a completed, delivered exchange in one transaction.
+
+        Both rows share the Telegram update id so retries cannot duplicate either turn.
+        """
+        async with self._pool().acquire() as conn:
+            async with conn.transaction():
+                if update_id is not None:
+                    existing = await conn.fetchval(
+                        """select 1 from public.conversation_messages
+                           where telegram_user_id=$1 and telegram_update_id=$2
+                           limit 1""",
+                        user_id, update_id,
+                    )
+                    if existing:
+                        return False
+                await conn.execute(
+                    """insert into public.conversation_messages
+                       (telegram_user_id, role, content, telegram_update_id)
+                       values ($1,'user',$2,$3)
+                       on conflict do nothing""",
+                    user_id, user_text[:12000], update_id,
+                )
+                await conn.execute(
+                    """insert into public.conversation_messages
+                       (telegram_user_id, role, content, telegram_update_id)
+                       values ($1,'assistant',$2,$3)
+                       on conflict do nothing""",
+                    user_id, assistant_text[:12000], update_id,
+                )
+        return True
+
+    async def get_conversation_state(self, user_id: int):
+        row = await self._pool().fetchrow(
+            """select active_topic, resolved_entities, last_completed_update_id,
+                      context_version, updated_at
+               from public.conversation_state where telegram_user_id=$1""",
+            user_id,
+        )
+        return dict(row) if row else {}
+
+    async def update_conversation_state(
+        self, user_id: int, active_topic: str | None = None,
+        resolved_entities: list | None = None, update_id: int | None = None,
+    ):
+        """Update canonical topic metadata without asking any model to own session state."""
+        entities = resolved_entities if isinstance(resolved_entities, list) else []
+        await self._pool().execute(
+            """insert into public.conversation_state
+                 (telegram_user_id, active_topic, resolved_entities, last_completed_update_id, updated_at)
+               values ($1,$2,$3::jsonb,$4,now())
+               on conflict (telegram_user_id) do update set
+                 active_topic=coalesce(excluded.active_topic, conversation_state.active_topic),
+                 resolved_entities=case
+                   when jsonb_array_length(excluded.resolved_entities) > 0
+                   then excluded.resolved_entities else conversation_state.resolved_entities end,
+                 last_completed_update_id=coalesce(excluded.last_completed_update_id, conversation_state.last_completed_update_id),
+                 updated_at=now()""",
+            user_id, (active_topic or "")[:160] or None,
+            __import__("json").dumps(entities[:12], ensure_ascii=False), update_id,
+        )
+
     async def get_recent_messages(self, user_id: int, limit: int = 12):
         rows = await self._pool().fetch(
             """select role, content from (
@@ -303,6 +365,10 @@ class Database:
         await self._pool().execute(
             "delete from public.user_memories where telegram_user_id=$1 and memory_key=$2",
             user_id, self.SUMMARY_MEMORY_KEY,
+        )
+        await self._pool().execute(
+            "delete from public.conversation_state where telegram_user_id=$1",
+            user_id,
         )
 
     async def delete_user_data(self, user_id: int):

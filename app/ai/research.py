@@ -261,7 +261,22 @@ class AnimeResearchService:
             )
         )
 
-        anime_scope = explicit_anime_scope or followup_candidate
+        explicit_who_form = bool(
+            re.search(r"\b(who is|who are)\b|(ఎవరు|ఎవడ)", corrected, re.I)
+            or (
+                re.search(r"\b(evaru|evadu)\b", lower, re.I)
+                and not has_reference
+            )
+        )
+        character_question = bool(
+            explicit_who_form
+            or (character_terms and (has_context or explicit_anime_scope))
+        )
+        # A character-shaped question is itself a valid anime-domain candidate.
+        # Do not require the character name to exist in a manually curated allowlist:
+        # unfamiliar characters (e.g. Itachi Uchiha) must reach the anime answer path.
+        # Explicit off-topic terms are still checked below and take precedence.
+        anime_scope = explicit_anime_scope or followup_candidate or character_question
         recommendation = bool(re.search(
             r"\b(recommend|recommendations|suggest|similar to|top\s+\d+\s+anime)\b|"
             r"\b(anime|manga)\s+(suggest|recommend)",
@@ -269,10 +284,6 @@ class AnimeResearchService:
         ))
         watch_order = bool(re.search(
             r"\b(watch order|watching order|chronological order|release order|read order)\b",
-            lower,
-        ))
-        character_question = character_terms or bool(re.search(
-            r"\b(who is|who are|character|powers?|ability|abilities|backstory|relationship)\b",
             lower,
         ))
         industry_question = bool(re.search(

@@ -261,6 +261,12 @@ class AnimeResearchService:
             )
         )
 
+        character_question = character_terms or bool(re.search(
+            r"\b(who is|who are|character|powers?|ability|abilities|backstory|relationship)\b|"
+            r"\b(evaru|evadu)\b|(ఎవరు|ఎవడ|పాత్ర|పవర్స్|శక్తులు|బలం|బలహీనత)",
+            corrected,
+            re.I,
+        ))
         # A character-shaped question is itself a valid anime-domain candidate.
         # Do not require the character name to exist in a manually curated allowlist:
         # unfamiliar characters (e.g. Itachi Uchiha) must reach the anime answer path.
@@ -274,12 +280,6 @@ class AnimeResearchService:
         watch_order = bool(re.search(
             r"\b(watch order|watching order|chronological order|release order|read order)\b",
             lower,
-        ))
-        character_question = character_terms or bool(re.search(
-            r"\b(who is|who are|evaru|evadu|character|powers?|ability|abilities|backstory|relationship)\b|"
-            r"(ఎవరు|ఎవడ|పాత్ర|పవర్స్|శక్తులు|బలం|బలహీనత)",
-            corrected,
-            re.I,
         ))
         industry_question = bool(re.search(
             r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b",

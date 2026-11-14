@@ -97,34 +97,98 @@ class AnimeResearchService:
 
     @classmethod
     def detect_intent(cls, text, history=None):
-        """Classify product intent before routing; typo correction is conservative and explainable."""
+        """Domain-aware intent detection with English, Romanized Telugu and Telugu-script follow-ups."""
         original = (text or "").strip()
         corrected = cls.correct_typos(original)
         lower = corrected.casefold()
-        previous = " ".join(
-            str(x.get("content", ""))[:400]
-            for x in (history or [])[-6:]
-            if isinstance(x, dict)
-        ).casefold()
-        has_context = bool(
-            re.search(r"\b(anime|manga|one piece|naruto|boruto|bleach|luffy|gojo|goku|watch order)\b", previous)
+        recent = [
+            x for x in (history or [])[-8:]
+            if isinstance(x, dict) and isinstance(x.get("content"), str)
+        ]
+        previous = " ".join(str(x.get("content", ""))[:500] for x in recent).casefold()
+
+        # Keep this entity vocabulary anime-specific: generic words such as "dragon"
+        # should not independently turn an unrelated conversation into anime scope.
+        context_entities = (
+            "anime", "manga", "one piece", "naruto", "boruto", "bleach",
+            "monkey d luffy", "luffy", "monkey d dragon", "revolutionary army",
+            "world government", "straw hat", "gojo", "goku", "zoro",
+            "sukuna", "ichigo", "tanjiro", "eren", "frieren", "solo leveling",
+            "demon slayer", "jujutsu kaisen", "attack on titan", "dragon ball",
+            "watch order", "manga chapter", "anime episode",
         )
-        entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES)
+        has_context = any(entity in previous for entity in context_entities)
+        entity_match = any(entity in lower for entity in cls.INTENT_ENTITIES) or bool(
+            re.search(r"\b(monkey\s+d\s+(?:luffy|dragon)|revolutionary army|straw hat pirates)\b", lower)
+        )
+
+        # English pronouns plus common Telangana/Romanized Telugu reference forms.
+        reference_pattern = (
+            r"\b(he|she|his|her|him|it|they|them|that|this|those|these|"
+            r"what about|how about|which one|tell me more|continue|"
+            r"athani|anthani|athanu|athaniki|athanigurinchi|"
+            r"vaadi|vadi|vaadu|vaadini|vaadiki|"
+            r"veedi|veedu|veediki|"
+            r"aame|ame|aameni|aameki|"
+            r"daani|dani|daaniki|"
+            r"vaalla|valla|vaallu|veella|veellu|"
+            r"tanaki|tana|thana|thanaki|"
+            r"eeyana|ayana|"
+            r"అతని|అతనికి|అతను|వాడి|వాడు|వాడికి|"
+            r"ఆమె|ఆమెకి|దాని|దానికి|వాళ్ళు|వాళ్ల|వీళ్ళు|"
+            r"తన|తనకి|ఇతని|ఇతనికి)\b"
+        )
+        continuation_pattern = (
+            r"\b(inka|inkaa|konchem|koncham|cheppu|cheppava|cheppagalava|"
+            r"cheppa\s+galava|cheppandi|gurinchi|enti|enduku|ela|"
+            r"power|powers|ability|abilities|strength|weakness|backstory|"
+            r"relationship|explain|more|detail|details|continue|"
+            r"ఇంకా|కొంచెం|చెప్పు|చెప్పవా|చెప్పగలవా|చెప్పండి|గురించి|"
+            r"ఏంటి|ఎందుకు|ఎలా|పవర్స్|శక్తులు|బలం|బలహీనత)\b"
+        )
+        has_reference = bool(re.search(reference_pattern, lower, re.I))
+        has_continuation_signal = bool(re.search(continuation_pattern, lower, re.I))
+        followup_candidate = bool(
+            has_context
+            and len(corrected.split()) <= 18
+            and (
+                has_reference
+                or has_continuation_signal
+                or re.fullmatch(
+                    r"(why|how|what happened|tell me more|go on|"
+                    r"inka|inkaa|cheppu|inka cheppu|konchem detail ga|"
+                    r"ఇంకా చెప్పు|కొంచెం వివరంగా)[.!? ]*",
+                    lower,
+                    re.I,
+                )
+            )
+        )
+
         explicit_anime_scope = bool(
             ANIME.search(corrected) or entity_match or TITLE.fullmatch(corrected)
         )
-        followup_candidate = bool(
-            has_context
-            and len(corrected.split()) <= 10
-            and (
-                re.search(
-                    r"\b(he|she|his|her|him|it|they|them|that|this|those|these|what about|how about|which one|tell me more|continue)\b",
-                    lower,
-                )
-                or re.fullmatch(r"(why|how|what happened|tell me more)[.!? ]*", lower)
-            )
-        )
         anime_scope = explicit_anime_scope or followup_candidate
+
+        recommendation = re.search(
+            r"\b(recommend|recommendations|suggest|similar to|top \d+ anime)\b|"
+            r"(anime|manga)\s+(suggest|recommend)",
+            lower,
+        )
+        watch_order = re.search(
+            r"\b(watch order|watching order|chronological order|release order|read order)\b",
+            lower,
+        )
+        character_question = re.search(
+            r"\b(who is|character|powers?|abilities|backstory|relationship|"
+            r"strength|weakness|bounty|haki|devil fruit|forms?|skills?)\b|"
+            r"\b(shakti|shaktulu|balam|balahinatha|power|powers)\b|"
+            r"(పవర్స్|శక్తులు|బలం|బలహీనత)",
+            lower,
+        )
+        industry_question = re.search(
+            r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b",
+            lower,
+        )
 
         if GREETING.fullmatch(corrected):
             intent = "greeting"
@@ -132,32 +196,40 @@ class AnimeResearchService:
             intent = "off_topic"
         elif LIVE.search(corrected) and anime_scope:
             intent = "live_news"
-        elif re.search(r"\b(recommend|recommendations|suggest|similar to|like .+ anime|top \d+ anime)\b", lower):
+        elif recommendation:
             intent = "recommendation"
-        elif re.search(r"\b(watch order|watching order|chronological order|release order|read order)\b", lower):
+        elif watch_order:
             intent = "watch_order"
-        elif re.search(r"\b(who is|character|powers|ability|backstory|relationship)\b", lower):
+        elif character_question and (anime_scope or followup_candidate):
             intent = "character_question"
-        elif re.search(r"\b(studio|director|animator|animation staff|voice actor|seiyuu)\b", lower):
+        elif industry_question:
             intent = "industry_question"
         elif followup_candidate:
             intent = "follow_up"
         else:
             intent = "anime_question" if anime_scope else "unclear"
 
-        if intent == "off_topic" or intent == "unclear":
+        if intent in {"off_topic", "unclear"}:
             scope = "redirect"
         elif intent == "greeting":
             scope = "greeting"
         else:
             scope = "anime"
 
+        confidence = (
+            0.95 if intent in {"greeting", "live_news", "watch_order", "recommendation"}
+            else 0.90 if followup_candidate
+            else 0.82 if anime_scope
+            else 0.55
+        )
         return {
             "intent": intent,
             "scope": scope,
             "normalized_text": corrected,
             "was_corrected": corrected != original,
-            "confidence": 0.95 if intent in {"greeting", "live_news", "watch_order", "recommendation"} else (0.82 if anime_scope else 0.55),
+            "confidence": confidence,
+            "is_follow_up": followup_candidate,
+            "context_used": followup_candidate,
         }
 
     @classmethod

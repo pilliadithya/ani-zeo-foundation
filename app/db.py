@@ -1,3 +1,4 @@
+import json
 import uuid
 from urllib.parse import urlparse
 
@@ -301,7 +302,7 @@ class Database:
                  last_completed_update_id=coalesce(excluded.last_completed_update_id, conversation_state.last_completed_update_id),
                  updated_at=now()""",
             user_id, (active_topic or "")[:160] or None,
-            __import__("json").dumps(entities[:12], ensure_ascii=False), update_id,
+            json.dumps(entities[:12], ensure_ascii=False), update_id,
         )
 
     async def get_recent_messages(self, user_id: int, limit: int = 12):

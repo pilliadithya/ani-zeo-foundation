@@ -262,9 +262,9 @@ class AnimeResearchService:
         )
 
         explicit_who_form = bool(
-            re.search(r"\\b(who is|who are)\\b|(ఎవరు|ఎవడ)", corrected, re.I)
+            re.search(r"\b(who is|who are)\b|(ఎవరు|ఎవడ)", corrected, re.I)
             or (
-                re.search(r"\\b(evaru|evadu)\\b", lower, re.I)
+                re.search(r"\b(evaru|evadu)\b", lower, re.I)
                 and not has_reference
             )
         )

@@ -17,7 +17,7 @@ ONE_PIECE = history(
     ("question", "expected"),
     [
         ("Luffy ki powers enti?", "character_question"),
-        ("Athani father evaru?", "character_question"),
+        ("Athani father evaru?", "follow_up"),
         ("Vaadiki Devil Fruit undha?", "character_question"),
         ("What about his weakness?", "character_question"),
         ("అతని పవర్స్ ఏంటి?", "character_question"),

@@ -421,7 +421,8 @@ class AIRouter:
             # bounded grace, wait_for cancels account 2 at the exact boundary
             # (e.g. 14s for two 7s accounts), before it can return its timeout.
             # Keep this grace small and always cap it by the shared request deadline.
-            call_timeout = timeout * account_count + min(1.5, 0.75 * account_count)
+            grace = min(1.5, 0.75 * account_count) if account_count > 1 else 0.0
+            call_timeout = timeout * account_count + grace
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0.05:
@@ -542,7 +543,7 @@ class AIRouter:
             for name in configured_order
             if str(name).strip()
         ))
-        total_timeout = max(12.0, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
+        total_timeout = max(0.1, min(30.0, float(getattr(self.settings, "ai_total_timeout_seconds", 28.0))))
         deadline = time.monotonic() + total_timeout
         for name in selected_order:
             remaining = deadline - time.monotonic()

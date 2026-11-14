@@ -717,6 +717,10 @@ async def _chat_message_locked(update: Update, context) -> None:
                 research_context=research.evidence_context(live_result),
                 intent_context=(
                     f"Detected intent: {intent_result['intent']}. "
+                    + (
+                        f"Active conversation topic from Ani Zeo memory: {conversation_state.get('active_topic')}. "
+                        if conversation_state.get("active_topic") else ""
+                    )
                     + ("This is a historical anime research request. Treat archived sources as historical reporting, not current status. " if is_historical_request else "This is a current anime research request. ")
                     + "Answer from the supplied evidence only. "
                     + (
@@ -825,10 +829,16 @@ async def _chat_message_locked(update: Update, context) -> None:
                 )
             await db.update_conversation_state(
                 user.id,
-                active_topic=detected_topic or conversation_state.get("active_topic"),
+                active_topic=(
+                    detected_topic
+                    or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
+                ),
                 resolved_entities=(
                     [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}]
-                    if detected_topic else []
+                    if detected_topic else (
+                        conversation_state.get("resolved_entities", [])
+                        if intent_result["intent"] == "follow_up" else []
+                    )
                 ),
                 update_id=getattr(update, "update_id", None),
             )

@@ -1,0 +1,32 @@
+name: Python tests
+
+on:
+  push:
+    branches:
+      - rebuild/master-architecture-v1
+      - feat/provider-independent-conversation-memory
+  pull_request:
+    branches:
+      - rebuild/master-architecture-v1
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run test suite
+        env:
+          TELEGRAM_BOT_TOKEN: "test-token"
+          WEBHOOK_SECRET: "test-secret"
+          DATABASE_URL: "postgresql://test:test@localhost:5432/test"
+        run: pytest -q

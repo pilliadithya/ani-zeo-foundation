@@ -86,7 +86,7 @@ def test_offtopic_request_wins_even_when_old_anime_context_exists():
     assert result["intent"] == "off_topic"
 
 
-def test_ambiguous_pronoun_without_context_does_not_guess():
+def test_ambiguous_pronoun_without_context_requests_clarification():
     result = AnimeResearchService.detect_intent(
         "Konchem athani power cheppa galava?",
         history(("user", "How are you?"), ("assistant", "I'm good.")),

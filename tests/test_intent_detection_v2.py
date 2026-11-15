@@ -141,3 +141,34 @@ def test_explicit_offtopic_still_wins_over_character_question_shape():
     result = AnimeResearchService.detect_intent("Who is Python and how do I code with it?")
     assert result["scope"] == "redirect"
     assert result["intent"] == "off_topic"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Give me its traler", "Give me its trailer"),
+        ("Tell me about anmie", "Tell me about anime"),
+        ("What is the narutoo release date?", "What is the Naruto release date?"),
+        ("Show me the latest episdoe", "Show me the latest episode"),
+        ("Give me its charecter list", "Give me its character list"),
+        ("Tell me Kaijuu No. 8 details", "Tell me Kaiju No. 8 details"),
+    ],
+)
+def test_common_anime_typing_errors_are_corrected(message, expected):
+    assert AnimeResearchService.correct_typos(message) == expected
+
+
+def test_typo_correction_does_not_rewrite_unfamiliar_proper_nouns():
+    message = "Tell me about Xylar Venn"
+    assert AnimeResearchService.correct_typos(message) == message
+
+
+def test_typo_corrected_followup_keeps_anime_intent():
+    conversation = history(
+        ("user", "Tell me about Kaiju No. 8"),
+        ("assistant", "Kaiju No. 8 is an anime about the Defense Force."),
+    )
+    result = AnimeResearchService.detect_intent("Give me its traler", conversation)
+    assert result["normalized_text"] == "Give me its trailer"
+    assert result["intent"] == "follow_up"
+    assert result["scope"] == "anime"

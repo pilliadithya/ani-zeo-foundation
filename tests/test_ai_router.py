@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import pytest
 from app.ai.router import AIRouter, SYSTEM_PROMPT
@@ -906,3 +907,144 @@ def test_tenglish_turn_keeps_saved_tenglish_preference():
         "tenglish",
     )
     assert "STRICT Tenglish" in messages[0]["content"]
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "history", "expected_query", "expected_topic"),
+    [
+        (
+            "Dani trailer ivvu",
+            [
+                {"role": "user", "content": "Naku Kaiju No. 8 gurinchi cheppu"},
+                {"role": "assistant", "content": "Kaiju No. 8 is a Japanese manga and anime."},
+            ],
+            "Give me the trailer for Kaiju No. 8",
+            "Kaiju No. 8",
+        ),
+        (
+            "iska trailer dikhao",
+            [
+                {"role": "user", "content": "Naruto ke baare mein batao"},
+                {"role": "assistant", "content": "Naruto is a ninja anime."},
+            ],
+            "Show me the trailer for Naruto",
+            "Naruto",
+        ),
+        (
+            "దాని ట్రైలర్ చూపించు",
+            [
+                {"role": "user", "content": "నరుటో గురించి చెప్పు"},
+                {"role": "assistant", "content": "Naruto is a ninja anime."},
+            ],
+            "Show me the trailer for Naruto",
+            "Naruto",
+        ),
+    ],
+)
+async def test_multilingual_intent_resolver_preserves_context_and_resolved_entity(
+    message, history, expected_query, expected_topic
+):
+    router = AIRouter(FakeSettings())
+    captured = {}
+
+    async def fake_generate(messages, providers, max_tokens):
+        captured["messages"] = messages
+        captured["max_tokens"] = max_tokens
+        return (
+            json.dumps({
+                "intent": "follow_up",
+                "domain": "anime",
+                "confidence": 0.96,
+                "normalized_query": expected_query,
+                "active_topic": expected_topic,
+                "resolved_entities": [expected_topic],
+                "is_follow_up": True,
+            }),
+            "gemini",
+            {},
+        )
+
+    router._generate_with_fallback = fake_generate
+    result = await router.classify_intent(message, history, language="english")
+
+    assert result["scope"] == "anime"
+    assert result["intent"] == "follow_up"
+    assert result["normalized_text"] == expected_query
+    assert result["active_topic"] == expected_topic
+    assert result["resolved_entities"] == [expected_topic]
+    assert result["context_used"] is True
+    payload = json.loads(captured["messages"][1]["content"])
+    assert payload["latest_message"] == message
+    assert payload["recent_conversation"] == history
+    assert captured["max_tokens"] <= 220
+
+
+@pytest.mark.asyncio
+async def test_intent_resolver_prompt_has_multilingual_examples_and_ambiguity_guard():
+    router = AIRouter(FakeSettings())
+    captured = {}
+
+    async def fake_generate(messages, providers, max_tokens):
+        captured["messages"] = messages
+        return (
+            json.dumps({
+                "intent": "unclear",
+                "domain": "unclear",
+                "confidence": 0.2,
+                "normalized_query": "Dani trailer ivvu",
+                "active_topic": None,
+                "resolved_entities": [],
+                "is_follow_up": False,
+            }),
+            "gemini",
+            {},
+        )
+
+    router._generate_with_fallback = fake_generate
+    await router.classify_intent("Dani trailer ivvu", [], language="english")
+    prompt = captured["messages"][0]["content"]
+    assert "Naku Kaiju No. 8 gurinchi cheppu" in prompt
+    assert "Naruto ke baare mein batao" in prompt
+    assert "నరుటో గురించి చెప్పు" in prompt
+    assert "if multiple entities are plausible, use unclear rather than guessing" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("intent", "domain", "confidence", "follow_up", "history", "expected_scope", "expected_context"),
+    [
+        ("anime_question", "anime", 0.95, False, [], "anime", False),
+        ("off_topic", "off_topic", 0.95, False, [], "redirect", False),
+        ("anime_question", "off_topic", 0.99, False, [], "clarify", False),
+        ("off_topic", "anime", 0.99, False, [], "clarify", False),
+        ("follow_up", "anime", 0.95, True, [], "clarify", False),
+        ("follow_up", "anime", 0.95, True, [{"role": "user", "content": "Tell me about Naruto"}], "anime", True),
+        ("greeting", "greeting", 0.98, False, [], "greeting", False),
+    ],
+)
+async def test_intent_resolver_rejects_contradictory_or_context_free_classifications(
+    intent, domain, confidence, follow_up, history, expected_scope, expected_context
+):
+    router = AIRouter(FakeSettings())
+
+    async def fake_generate(messages, providers, max_tokens):
+        return (
+            json.dumps({
+                "intent": intent,
+                "domain": domain,
+                "confidence": confidence,
+                "normalized_query": "Tell me about Naruto",
+                "active_topic": "Naruto",
+                "resolved_entities": ["Naruto"],
+                "is_follow_up": follow_up,
+            }),
+            "gemini",
+            {},
+        )
+
+    router._generate_with_fallback = fake_generate
+    result = await router.classify_intent("Tell me about Naruto", history, language="english")
+    assert result["scope"] == expected_scope
+    assert result["context_used"] is expected_context

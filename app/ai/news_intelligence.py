@@ -4,7 +4,6 @@ These helpers do not decide whether a claim is true. They preserve article text,
 canonicalise source identities, and group likely reports of the same story so the
 answer writer and final verifier can distinguish independent publishers.
 """
-from difflib import SequenceMatcher
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import ipaddress
@@ -132,7 +131,7 @@ def _title_tokens(title: str) -> set[str]:
         "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at",
         "new", "latest", "news", "update", "updates", "anime", "manga",
         "announced", "announcement", "reveals", "reveal", "release", "date",
-        "season", "episode", "episodes", "trailer", "visual", "official",
+        "trailer", "visual", "official",
     }
     return {
         token.casefold() for token in re.findall(r"[a-z0-9]+", title or "")
@@ -151,12 +150,10 @@ def cluster_stories(items: list[dict]) -> list[dict]:
         for cluster in clusters:
             if not tokens or not cluster["tokens"]:
                 continue
-            overlap = len(tokens & cluster["tokens"]) / max(1, len(tokens | cluster["tokens"]))
-            sequence = SequenceMatcher(None, " ".join(sorted(tokens)), " ".join(sorted(cluster["tokens"]))).ratio()
-            score = max(overlap, sequence)
+            score = len(tokens & cluster["tokens"]) / max(1, len(tokens | cluster["tokens"]))
             if score > best_score:
                 best, best_score = cluster, score
-        if best is None or best_score < 0.58:
+        if best is None or best_score < 0.62:
             best = {
                 "story_id": f"story_{len(clusters) + 1}",
                 "tokens": tokens,

@@ -225,3 +225,38 @@ def test_valid_leap_day_is_normalized_and_checked():
         research,
     )
     assert result["ok"] is True
+
+
+
+def test_generated_answer_rejects_story_heading_taken_only_from_incidental_previous_work():
+    research = {
+        "evidence": [{
+            "title": "ATASHIn'CHI Next announces monthly new episodes",
+            "snippet": "Director Taku Kimura previously directed Chainsmoker Cat. New ATASHIn'CHI Next episodes begin January 1, 2027.",
+            "verification_status": "primary_source",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Chainsmoker Cat – New Episodes**\nNew episodes directed by Taku Kimura will debut monthly.",
+        research,
+    )
+    assert result["ok"] is False
+    assert result["unsupported_story_headings"] == ["Chainsmoker Cat"]
+
+
+def test_generated_answer_accepts_story_heading_supported_by_source_headline():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 reveals January 9, 2027 premiere date",
+            "snippet": "The first main visual and trailer were released.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Mashle: Magic and Muscle – Season 3**\nThe premiere is January 9, 2027.",
+        research,
+    )
+    assert result["ok"] is True
+    assert result["unsupported_story_headings"] == []

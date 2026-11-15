@@ -5,6 +5,8 @@ canonicalise source identities, and group likely reports of the same story so th
 answer writer and final verifier can distinguish independent publishers.
 """
 from html.parser import HTMLParser
+import asyncio
+import socket
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import ipaddress
 import re

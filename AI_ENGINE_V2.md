@@ -81,10 +81,9 @@ of the current news item. Generated bold news headings are matched against colle
 headlines, not just combined body snippets. Unsupported headings cause the generated response
 to fail closed through the existing localized verification fallback.
 
-This deterministic regression guard is not a complete semantic fact checker. Search-result
-headlines and snippets remain evidence leads; page-level retrieval and claim-by-claim support
-are still needed for stronger verification. A source-domain reputation label does not itself
-prove an individual claim.
+This deterministic regression guard is not a complete semantic fact checker. Bounded page
+retrieval and sentence-level lexical source-span alignment are implemented below, but a
+source-domain reputation label or lexical match does not itself prove an individual claim.
 
 
 ## News evidence enrichment and corroboration
@@ -108,12 +107,11 @@ dates, impossible calendar dates, conflicting chapter dates, official-confirmati
 and story headings that are not supported by source headlines. Extracted article text is
 included in the evidence used for these checks.
 
-These checks are deterministic guardrails, not full natural-language entailment. They can
-catch unsupported identifiers and attribution mistakes, but cannot prove every paraphrased
-sentence. Stronger semantic claim verification still requires sentence-level evidence
-alignment or a dedicated verifier with its own cited source spans. If a provider supplies
-no page text, the system continues to use the available search excerpt and fails closed on
-the supported checks rather than pretending the page was fetched.
+These checks are deterministic guardrails, not full natural-language entailment. The later
+sentence-level layer attempts to align factual claims to source spans, but it can reject
+valid paraphrases and cannot reliably detect every contradiction, negation or implication.
+If a provider supplies no page text and bounded retrieval fails, the system uses the available
+search excerpt and fails closed on unsupported checks rather than pretending the page was fetched.
 
 
 ## Bounded page retrieval and sentence-level evidence alignment

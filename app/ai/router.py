@@ -634,13 +634,26 @@ class AIRouter:
             topic = data.get("active_topic")
             if not isinstance(topic, str) or not topic.strip():
                 topic = None
-            scope = ("anime" if domain == "anime" and confidence >= 0.62 else
-                     "greeting" if domain == "greeting" and intent == "greeting" else
-                     "redirect" if domain == "off_topic" and confidence >= 0.88 else "clarify")
+            is_follow_up = bool(data.get("is_follow_up"))
+            # Do not let contradictory model labels bypass the deterministic scope gate.
+            # A follow-up without usable history cannot safely inherit an anime topic.
+            if intent == "greeting" and domain == "greeting":
+                scope = "greeting"
+            elif intent == "off_topic" and domain == "off_topic" and confidence >= 0.88:
+                scope = "redirect"
+            elif (
+                domain == "anime"
+                and intent not in {"greeting", "off_topic", "unclear"}
+                and confidence >= 0.62
+                and (not is_follow_up or bool(recent))
+            ):
+                scope = "anime"
+            else:
+                scope = "clarify"
             return {"intent": intent, "domain": domain, "scope": scope,
                     "normalized_text": normalized.strip()[:1800], "confidence": confidence,
-                    "is_follow_up": bool(data.get("is_follow_up")),
-                    "context_used": bool(data.get("is_follow_up")),
+                    "is_follow_up": is_follow_up,
+                    "context_used": bool(is_follow_up and recent),
                     "active_topic": topic[:160] if topic else None,
                     "resolved_entities": entities, "classifier_provider": provider,
                     "classifier_usage": usage}

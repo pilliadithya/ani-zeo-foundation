@@ -530,19 +530,9 @@ async def _chat_message_locked(update: Update, context) -> None:
     profile = await db.get_profile(user.id)
     consented = bool(profile and profile.get("consented_at"))
 
-    # Onboarding is explicit. A user who has not consented may still ask a
-    # stateless question; their message, history, preferences and memory are
-    # not persisted. /start remains the route into saved/personalised chat.
-    if consented and profile.get("onboarding_step") == "awaiting_name":
-        if await handle_onboarding_name(update, context):
-            return
-
-    if consented and profile.get("onboarding_step") == "awaiting_language":
-        await message.reply_text(
-            "Choose the language you'd like Ani Zeo to use:",
-            reply_markup=language_keyboard(),
-        )
-        return
+    # Onboarding is optional and must never intercept a normal anime question.
+    # Users can complete profile setup from /start or settings; an unanswered
+    # display-name/language step is not a reason to block the conversation.
 
     profile = profile or {}
     preferred_language = profile.get("preferred_language") or "english"

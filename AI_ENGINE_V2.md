@@ -71,3 +71,17 @@ These additive migrations were applied to the connected Supabase project. RLS is
 - Tavily snippets are never sent directly as the final user response; they pass through the shared writer.
 - The admin usage command requires an explicit allowlist.
 - No environment variable is required for the new code to start. Pricing estimates and the admin command remain opt-in.
+
+
+## Live-news story identity verification
+
+Live-news responses are checked for an attribution failure: an anime title mentioned only
+as a person's previous work or an incidental body-text reference must not become the subject
+of the current news item. Generated bold news headings are matched against collected source
+headlines, not just combined body snippets. Unsupported headings cause the generated response
+to fail closed through the existing localized verification fallback.
+
+This deterministic regression guard is not a complete semantic fact checker. Search-result
+headlines and snippets remain evidence leads; page-level retrieval and claim-by-claim support
+are still needed for stronger verification. A source-domain reputation label does not itself
+prove an individual claim.

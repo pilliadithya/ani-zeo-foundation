@@ -622,6 +622,9 @@ async def _chat_message_locked(update: Update, context) -> None:
     )
 
     if scope == "redirect":
+        if not consented:
+            # An explicit out-of-domain turn ends the volatile anime topic.
+            context.application.bot_data.setdefault("ephemeral_conversation_context", {}).pop(user.id, None)
         await message.reply_text(REDIRECT)
         return
 

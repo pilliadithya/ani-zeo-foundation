@@ -652,7 +652,7 @@ class AnimeResearchService:
                 "title": item.get("title") or "",
                 "url": item.get("link") or item.get("original_link") or item.get("url") or "",
                 "content": item.get("description") or "",
-                "raw_content": item.get("raw_content") or item.get("content") or "",
+                **({"raw_content": item.get("raw_content")} if item.get("raw_content") else {}),
                 "published_date": "",
                 "score": None,
             }
@@ -668,7 +668,6 @@ class AnimeResearchService:
                 "title": item.get("name") or "",
                 "url": item.get("url") or "",
                 "content": item.get("text") or item.get("snippet") or "",
-                "raw_content": item.get("text") or "",
                 "published_date": item.get("datePublished") or "",
                 "score": None,
             }

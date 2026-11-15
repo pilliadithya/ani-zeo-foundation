@@ -8,8 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import httpx
 
-from app.ai.fact_verifier import verify_evidence
-from app.ai.news_intelligence import extract_article_text
+from app.ai.fact_verifier import PRIMARY_DOMAINS, REPUTABLE_NEWS_DOMAINS, verify_evidence
+from app.ai.news_intelligence import extract_article_text, fetch_article_text
 
 log = logging.getLogger(__name__)
 
@@ -674,6 +674,28 @@ class AnimeResearchService:
             for item in rows if isinstance(item, dict)
         ]
 
+    async def _fetch_missing_article_text(self, raw_results):
+        """Retrieve bounded text only from recognised primary/reputable publishers."""
+        semaphore = asyncio.Semaphore(3)
+
+        async def enrich(item):
+            if not isinstance(item, dict):
+                return item
+            raw = item.get("raw_content") or item.get("page_text")
+            if raw and len(str(raw).strip()) > 250:
+                item["raw_content"] = raw
+                return item
+            async with semaphore:
+                page = await fetch_article_text(
+                    item.get("url") or item.get("link") or "",
+                    PRIMARY_DOMAINS | REPUTABLE_NEWS_DOMAINS,
+                )
+            if page.get("page_text"):
+                item["raw_content"] = page["page_text"]
+            return item
+
+        return await asyncio.gather(*(enrich(item) for item in (raw_results or [])))
+
     def _build_search_result(self, raw_results, query, language, provider, usage=None):
         """Apply one relevance, provenance and presentation pipeline to every search provider."""
         candidates = []
@@ -832,8 +854,10 @@ class AnimeResearchService:
             if payload.get("status") != "done":
                 log.warning("Live search provider=decodo outcome=failed category=job_status")
                 return None
+            normalised = self._normalise_decodo_results(payload)
+            normalised = await self._fetch_missing_article_text(normalised)
             result = self._build_search_result(
-                self._normalise_decodo_results(payload), query, language, "decodo"
+                normalised, query, language, "decodo"
             )
             if result:
                 self._store(cache_key, result, ttl=300)
@@ -881,8 +905,10 @@ class AnimeResearchService:
             if str(payload.get("code")) != "200":
                 log.warning("Live search provider=langsearch outcome=failed category=api_code")
                 return None
+            normalised = self._normalise_langsearch_results(payload)
+            normalised = await self._fetch_missing_article_text(normalised)
             result = self._build_search_result(
-                self._normalise_langsearch_results(payload), query, language, "langsearch"
+                normalised, query, language, "langsearch"
             )
             if result:
                 self._store(cache_key, result, ttl=300)
@@ -960,6 +986,7 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
+            raw_results = await self._fetch_missing_article_text(raw_results)
             candidates = []
             rejected = 0
             for item in raw_results:

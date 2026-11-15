@@ -85,3 +85,32 @@ This deterministic regression guard is not a complete semantic fact checker. Sea
 headlines and snippets remain evidence leads; page-level retrieval and claim-by-claim support
 are still needed for stronger verification. A source-domain reputation label does not itself
 prove an individual claim.
+
+
+## News evidence enrichment and corroboration
+
+Search-provider results are normalised into one evidence shape. Where the provider returns
+article text (for example, LangSearch text or Tavily raw content), the pipeline extracts a
+bounded readable text field while discarding script, style, navigation, and footer content.
+The original search headline remains the canonical story subject.
+
+Evidence URLs are canonicalised: tracking parameters and fragments are removed, and
+non-HTTPS, credential-bearing, non-standard-port, localhost, local-domain, and literal-IP
+URLs are rejected. This is URL hygiene, not a substitute for network-level SSRF controls.
+
+Likely duplicate reports are grouped using conservative headline-token similarity. Each
+item carries a story cluster ID, report count, and distinct publisher count. Multiple
+articles from the same publisher count once for corroboration; source count is not the
+same as independent confirmation.
+
+The final verifier now checks unsupported numerical anchors as well as chapter numbers,
+dates, impossible calendar dates, conflicting chapter dates, official-confirmation language,
+and story headings that are not supported by source headlines. Extracted article text is
+included in the evidence used for these checks.
+
+These checks are deterministic guardrails, not full natural-language entailment. They can
+catch unsupported identifiers and attribution mistakes, but cannot prove every paraphrased
+sentence. Stronger semantic claim verification still requires sentence-level evidence
+alignment or a dedicated verifier with its own cited source spans. If a provider supplies
+no page text, the system continues to use the available search excerpt and fails closed on
+the supported checks rather than pretending the page was fetched.

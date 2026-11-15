@@ -5,9 +5,10 @@ canonicalise source identities, and group likely reports of the same story so th
 answer writer and final verifier can distinguish independent publishers.
 """
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import ipaddress
 import re
+import httpx
 
 
 TRACKING_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -172,3 +173,135 @@ def cluster_stories(items: list[dict]) -> list[dict]:
             item["story_source_count"] = len(cluster["items"])
             item["story_independent_publishers"] = len(cluster["domains"])
     return items
+
+
+
+async def fetch_article_text(url: str, allowed_domains: set[str], limit: int = 6000) -> dict:
+    """Fetch bounded article text only from explicitly trusted publisher domains.
+
+    Redirects are followed manually and revalidated. Private/reserved DNS answers,
+    non-HTTPS URLs, credentials, unusual ports, unsupported content types and
+    oversized responses are rejected. This is a best-effort application guard;
+    production egress controls should additionally block private address ranges.
+    """
+    current = canonical_url(url)
+    for _ in range(3):
+        if not current:
+            return {"page_title": "", "page_description": "", "page_text": ""}
+        parts = urlsplit(current)
+        host = parts.hostname or ""
+        if not any(host == d or host.endswith("." + d) for d in allowed_domains):
+            return {"page_title": "", "page_description": "", "page_text": ""}
+        try:
+            addresses = await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM),
+                timeout=1.5,
+            )
+        except (OSError, asyncio.TimeoutError):
+            return {"page_title": "", "page_description": "", "page_text": ""}
+        if not addresses:
+            return {"page_title": "", "page_description": "", "page_text": ""}
+        for address in addresses:
+            try:
+                ip = ipaddress.ip_address(address[4][0])
+                if not ip.is_global:
+                    return {"page_title": "", "page_description": "", "page_text": ""}
+            except ValueError:
+                return {"page_title": "", "page_description": "", "page_text": ""}
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(4.0, connect=2.0),
+                follow_redirects=False,
+                headers={"User-Agent": "AniZeoNewsBot/1.0 (+https://ani-zeo-foundation.onrender.com)"},
+            ) as client:
+                async with client.stream("GET", current) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("location")
+                        if not location:
+                            break
+                        current = canonical_url(urljoin(current, location))
+                        continue
+                    if response.status_code != 200:
+                        break
+                    content_type = response.headers.get("content-type", "").casefold()
+                    if not any(kind in content_type for kind in ("text/html", "application/xhtml+xml", "text/plain")):
+                        break
+                    chunks = []
+                    size = 0
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > 200_000:
+                            break
+                        chunks.append(chunk)
+                    if size > 200_000:
+                        break
+                    raw = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+                    return extract_article_text(raw, limit=limit)
+        except (httpx.HTTPError, UnicodeError, ValueError):
+            break
+    return {"page_title": "", "page_description": "", "page_text": ""}
+
+
+def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: float = 0.42) -> dict:
+    """Conservatively align factual-looking sentences to source text spans.
+
+    This lexical alignment is an explainable guardrail, not an entailment model.
+    It checks named/number anchors and weighted token overlap and returns the
+    closest source sentence for every checked claim.
+    """
+    stop = {
+        "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "at",
+        "for", "from", "with", "by", "as", "is", "are", "was", "were", "be",
+        "been", "being", "this", "that", "these", "those", "it", "its", "they",
+        "their", "he", "she", "his", "her", "has", "have", "had", "will",
+        "would", "could", "may", "might", "about", "also", "more", "new",
+        "latest", "according", "reported", "reports", "source", "sources",
+    }
+
+    def tokens(value):
+        return {
+            token.casefold() for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]*|\d{1,4}(?:[.,]\d+)?%?", value or "")
+            if len(token) > 2 and token.casefold() not in stop
+        }
+
+    source_sentences = []
+    for item in evidence or []:
+        if not isinstance(item, dict):
+            continue
+        source = " ".join(str(item.get(key) or "") for key in ("title", "snippet", "page_text"))
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", source):
+            sentence_tokens = tokens(sentence)
+            if sentence_tokens:
+                source_sentences.append((item, sentence.strip()[:500], sentence_tokens))
+
+    aligned, unsupported = [], []
+    for raw_sentence in re.split(r"(?<=[.!?])\s+|\n+", str(answer or "")):
+        sentence = re.sub(r"^\s*(?:[-*•]\s*)?(?:\*\*)?|(?:\*\*)?\s*$", "", raw_sentence).strip()
+        claim_tokens = tokens(sentence)
+        if len(claim_tokens) < 3:
+            continue
+        # Skip conversational framing and headings without a factual predicate.
+        if len(sentence) < 28:
+            continue
+        best = None
+        best_score = 0.0
+        for item, source_sentence, source_tokens in source_sentences:
+            overlap = claim_tokens & source_tokens
+            coverage = len(overlap) / max(1, len(claim_tokens))
+            anchor_tokens = {t for t in claim_tokens if re.search(r"\d", t) or (t[:1].isupper() and len(t) > 2)}
+            anchor_coverage = len(anchor_tokens & source_tokens) / max(1, len(anchor_tokens))
+            score = coverage * 0.75 + anchor_coverage * 0.25
+            if score > best_score:
+                best, best_score = (item, source_sentence, coverage, anchor_coverage), score
+        if best and best[2] >= min_coverage and (best[3] >= 0.5 or not any(re.search(r"\d", t) for t in claim_tokens)):
+            aligned.append({
+                "claim": sentence[:300],
+                "source_title": str(best[0].get("title") or "")[:180],
+                "source_url": str(best[0].get("url") or ""),
+                "source_span": best[1],
+                "coverage": round(best_score, 3),
+            })
+        else:
+            unsupported.append(sentence[:300])
+    return {"aligned_claims": aligned, "unsupported_claims": unsupported, "checked_claim_count": len(aligned) + len(unsupported)}

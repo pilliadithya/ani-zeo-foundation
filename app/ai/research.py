@@ -1077,6 +1077,8 @@ class AnimeResearchService:
             "Overall evidence status: " + str(verification.get("overall_status") or "unknown"),
             "Important: search excerpts are evidence leads, not proof of every implied claim.",
             "Only describe something as officially confirmed when a primary source explicitly confirms it.",
+            "Multiple reports from one publisher count as one publisher, not independent corroboration.",
+            "Use article text as context, but keep the article headline as the canonical story subject.",
         ]
         conflicts = verification.get("conflicts") or []
         for conflict in conflicts[:5]:
@@ -1094,7 +1096,11 @@ class AnimeResearchService:
                 "Publisher: " + str(item.get("domain") or "")[:100],
                 "Published: " + str(item.get("published") or "not supplied"),
                 "Last checked: " + str(item.get("last_verified_at") or "not recorded"),
-                "Excerpt: " + str(item.get("snippet") or "")[:700],
+                "Story cluster: " + str(item.get("story_id") or "unclustered"),
+                "Reports in this story: " + str(item.get("story_source_count") or 1),
+                "Independent publishers for this story: " + str(item.get("story_independent_publishers") or 1),
+                "Excerpt: " + str(item.get("snippet") or "")[:500],
+                "Article text: " + str(item.get("page_text") or "")[:500],
                 "URL: " + str(item.get("url") or ""),
             ])
         return "\n".join(lines)[:3_000]

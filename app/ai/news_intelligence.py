@@ -264,7 +264,7 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
     def tokens(value):
         return {
             token.casefold() for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]*|\d{1,4}(?:[.,]\d+)?%?", value or "")
-            if len(token) > 2 and token.casefold() not in stop
+            if (len(token) > 2 or token.isdigit()) and token.casefold() not in stop
         }
 
     source_sentences = []

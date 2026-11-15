@@ -1,4 +1,5 @@
-import asyncio\nimport json
+import asyncio
+import json
 import time
 import pytest
 from app.ai.router import AIRouter, SYSTEM_PROMPT

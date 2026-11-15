@@ -102,7 +102,8 @@ class _ArticleTextParser(HTMLParser):
         target.append(text + " ")
 
     def result(self, limit=6000):
-        text = re.sub(r"[ \t]+", " ", " ".join(self.text_parts))
+        parts = self.article_parts if len(" ".join(self.article_parts).strip()) > 40 else self.text_parts
+        text = re.sub(r"[ \t]+", " ", " ".join(parts))
         text = re.sub(r"\s*\n\s*", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         return {

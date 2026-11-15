@@ -485,6 +485,57 @@ async def send_formatted_answer(message, answer: str) -> None:
 # Serialize each user's Telegram updates before assembling a shared context snapshot
 # inside this worker. Database update claims still protect duplicate webhook IDs.
 _USER_CONVERSATION_LOCKS: dict[int, asyncio.Lock] = {}
+_EPHEMERAL_CONTEXT_TTL_SECONDS = 20 * 60
+_EPHEMERAL_CONTEXT_MAX_USERS = 500
+_EPHEMERAL_CONTEXT_MAX_TURNS = 8
+
+
+def _get_ephemeral_context(bot_data: dict, user_id: int) -> dict:
+    """Return a short-lived in-process context for users who have not opted into storage.
+
+    This is volatile RAM only: never written to Postgres, logs, analytics, or memory summaries.
+    """
+    import time
+
+    store = bot_data.setdefault("ephemeral_conversation_context", {})
+    now = time.monotonic()
+    for key, value in list(store.items()):
+        if now - float(value.get("updated_at", 0)) > _EPHEMERAL_CONTEXT_TTL_SECONDS:
+            store.pop(key, None)
+    entry = store.get(user_id)
+    if not entry:
+        return {"history": [], "active_topic": None, "resolved_entities": []}
+    return {
+        "history": [dict(item) for item in entry.get("history", [])[-_EPHEMERAL_CONTEXT_MAX_TURNS:]],
+        "active_topic": entry.get("active_topic"),
+        "resolved_entities": list(entry.get("resolved_entities", []))[:5],
+    }
+
+
+def _set_ephemeral_context(bot_data: dict, user_id: int, history: list, active_topic=None, resolved_entities=None) -> None:
+    """Bound volatile context size and lifetime; no persistence or prompt logging."""
+    import time
+
+    store = bot_data.setdefault("ephemeral_conversation_context", {})
+    now = time.monotonic()
+    for key, value in list(store.items()):
+        if now - float(value.get("updated_at", 0)) > _EPHEMERAL_CONTEXT_TTL_SECONDS:
+            store.pop(key, None)
+    if user_id not in store and len(store) >= _EPHEMERAL_CONTEXT_MAX_USERS:
+        oldest = min(store, key=lambda key: store[key].get("updated_at", 0))
+        store.pop(oldest, None)
+    safe_history = []
+    for item in history[-_EPHEMERAL_CONTEXT_MAX_TURNS:]:
+        if isinstance(item, dict) and item.get("role") in {"user", "assistant"}:
+            content = str(item.get("content") or "")[:1800]
+            if content:
+                safe_history.append({"role": item["role"], "content": content})
+    store[user_id] = {
+        "history": safe_history,
+        "active_topic": str(active_topic)[:160] if active_topic else None,
+        "resolved_entities": [str(value)[:100] for value in (resolved_entities or [])[:5]],
+        "updated_at": now,
+    }
 
 
 async def chat_message(update: Update, context) -> None:
@@ -538,8 +589,9 @@ async def _chat_message_locked(update: Update, context) -> None:
     preferred_language = profile.get("preferred_language") or "english"
 
     research = context.application.bot_data["research"]
-    conversation_state = await db.get_conversation_state(user.id) if consented else {}
-    recent_for_scope = await db.get_recent_messages(user.id, limit=12) if consented else []
+    ephemeral_context = {} if consented else _get_ephemeral_context(context.application.bot_data, user.id)
+    conversation_state = await db.get_conversation_state(user.id) if consented else ephemeral_context
+    recent_for_scope = await db.get_recent_messages(user.id, limit=12) if consented else list(ephemeral_context.get("history", []))
     if conversation_state.get("active_topic"):
         recent_for_scope.append({
             "role": "assistant",
@@ -829,7 +881,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                 saved = await db.save_exchange(
                     user.id, message.text, answer, getattr(update, "update_id", None)
                 )
-            if saved:
+            if saved or not consented:
                 detected_topic = (
                     intent_result.get("active_topic")
                     or title
@@ -841,23 +893,36 @@ async def _chat_message_locked(update: Update, context) -> None:
                          if entity in normalized_text.casefold()),
                         None,
                     )
-                await db.update_conversation_state(
-                    user.id,
-                    active_topic=(
-                        detected_topic
-                        or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
-                    ),
-                    resolved_entities=(
-                        ([{"type": "resolved_entity", "name": entity, "source": "intent_resolver"}
-                          for entity in intent_result.get("resolved_entities", [])]
-                         or [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}])
-                        if detected_topic or intent_result.get("resolved_entities") else (
-                            conversation_state.get("resolved_entities", [])
-                            if intent_result["intent"] == "follow_up" else []
-                        )
-                    ),
-                    update_id=getattr(update, "update_id", None),
+                next_topic = (
+                    detected_topic
+                    or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
                 )
+                resolved_entities = intent_result.get("resolved_entities") or conversation_state.get("resolved_entities", [])
+                if consented:
+                    await db.update_conversation_state(
+                        user.id,
+                        active_topic=next_topic,
+                        resolved_entities=(
+                            ([{"type": "resolved_entity", "name": entity, "source": "intent_resolver"}
+                              for entity in intent_result.get("resolved_entities", [])]
+                             or [{"type": "anime_or_character", "name": next_topic, "source": "explicit_user_turn"}])
+                            if next_topic or intent_result.get("resolved_entities") else (
+                                conversation_state.get("resolved_entities", [])
+                                if intent_result["intent"] == "follow_up" else []
+                            )
+                        ),
+                        update_id=getattr(update, "update_id", None),
+                    )
+                else:
+                    ephemeral_history = list(recent_for_scope)
+                    ephemeral_history.extend([
+                        {"role": "user", "content": normalized_text},
+                        {"role": "assistant", "content": answer},
+                    ])
+                    _set_ephemeral_context(
+                        context.application.bot_data, user.id, ephemeral_history,
+                        active_topic=next_topic, resolved_entities=resolved_entities,
+                    )
     
     
         except Exception as memory_write_exc:

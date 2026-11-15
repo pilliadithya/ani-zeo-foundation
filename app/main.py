@@ -716,6 +716,32 @@ async def _chat_message_locked(update: Update, context) -> None:
             )
         return
 
+    # Trailer follow-ups resolve against the active anime instead of restarting a profile.
+    trailer_request = bool(re.search(r"\\b(trailer|teaser|pv|preview)\\b|ట్రైలర్|టీజర్", normalized_text, re.I))
+    if trailer_request:
+        topic = conversation_state.get("active_topic")
+        if not topic:
+            topic = next((str(item.get("name")) for item in (conversation_state.get("resolved_entities") or []) if isinstance(item, dict) and item.get("name")), None)
+        if not topic:
+            topic = research.extract_title(normalized_text)
+        if topic:
+            search_url = "https://www.youtube.com/results?search_query=" + quote_plus(str(topic) + " official anime trailer")
+            language = (preferred_language or "english").lower()
+            if language in {"tenglish", "telugu"}:
+                reply = f"🎬 **{topic} — Trailer**\\n\\nIkkada {topic} official anime trailer search link. Official channel/source ni check chesi open cheyyi:\\n{search_url}"
+            elif language in {"hinglish", "hindi"}:
+                reply = f"🎬 **{topic} — Trailer**\\n\\nYahan {topic} ke anime trailer ka YouTube search link hai. Official channel/source verify karke open karein:\\n{search_url}"
+            else:
+                reply = f"🎬 **{topic} — Trailer search**\\n\\nOpen this YouTube search and choose the official trailer from the publisher or studio channel:\\n{search_url}"
+            await send_formatted_answer(message, reply)
+            if consented:
+                await db.save_exchange(user.id, message.text, reply, getattr(update, "update_id", None))
+            else:
+                trailer_history = list(recent_for_scope)
+                trailer_history.extend([{"role": "user", "content": normalized_text}, {"role": "assistant", "content": reply}])
+                _set_ephemeral_context(context.application.bot_data, user.id, trailer_history, active_topic=topic, resolved_entities=conversation_state.get("resolved_entities", []))
+            return
+
     try:
         # Personalization can be disabled in the user's profile.
         personalization_enabled = consented and profile.get("personalization_enabled", True) is not False

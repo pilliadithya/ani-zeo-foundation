@@ -271,11 +271,13 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
     for item in evidence or []:
         if not isinstance(item, dict):
             continue
-        source = " ".join(str(item.get(key) or "") for key in ("title", "snippet", "page_text"))
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", source):
-            sentence_tokens = tokens(sentence)
-            if sentence_tokens:
-                source_sentences.append((item, sentence.strip()[:500], sentence_tokens))
+        title = str(item.get("title") or "")
+        for field in ("snippet", "page_text"):
+            source = str(item.get(field) or "")
+            for sentence in re.split(r"(?<=[.!?])\\s+|\\n+", source):
+                sentence_tokens = tokens(title + " " + sentence)
+                if sentence_tokens:
+                    source_sentences.append((item, sentence.strip()[:500], sentence_tokens))
 
     aligned, unsupported = [], []
     for raw_sentence in re.split(r"(?<=[.!?])\s+|\n+", str(answer or "")):

@@ -1,3 +1,10 @@
+import os
+
+# app.main builds Settings at import time; supply inert test-only values.
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
+os.environ.setdefault("WEBHOOK_SECRET", "test-webhook-secret")
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+
 from app.main import (
     _EPHEMERAL_CONTEXT_TTL_SECONDS,
     _get_ephemeral_context,

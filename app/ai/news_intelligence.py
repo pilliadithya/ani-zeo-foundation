@@ -294,15 +294,16 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
             overlap = claim_tokens & source_tokens
             coverage = len(overlap) / max(1, len(claim_tokens))
             anchor_tokens = {
-                token.casefold()
-                for token in re.findall(r"\b[A-Z][A-Za-z0-9'-]{2,}\b|\b\d{1,4}(?:[.,]\d+)?%?\b", sentence)
+                match.group(0).casefold()
+                for match in re.finditer(r"\b[A-Z][A-Za-z0-9'-]{2,}\b|\b\d{1,4}(?:[.,]\d+)?%?\b", sentence)
+                if match.start() > 0
             }
             anchor_coverage = len(anchor_tokens & source_tokens) / max(1, len(anchor_tokens))
             score = coverage * 0.75 + anchor_coverage * 0.25
             if score > best_score:
                 best, best_score = (item, source_sentence, coverage, anchor_coverage, source_tokens), score
         numeric_anchors = {token for token in claim_tokens if re.search(r"\d", token)}
-        if best and best[2] >= min_coverage and numeric_anchors.issubset(best[4]) and (best[3] >= 0.5 or not numeric_anchors):
+        if best and best[2] >= min_coverage and numeric_anchors.issubset(best[4]) and (best[3] >= 1.0 or not anchor_tokens):
             aligned.append({
                 "claim": sentence[:300],
                 "source_title": str(best[0].get("title") or "")[:180],

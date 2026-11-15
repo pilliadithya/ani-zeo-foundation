@@ -145,3 +145,9 @@ def test_claim_alignment_rejects_short_claim_when_no_source_span_matches():
         [{"title": "Mashle Season 3 premiere", "snippet": "It airs in July."}],
     )
     assert result["unsupported_claims"]
+
+
+def test_canonical_url_rejects_credentials_unusual_ports_and_internal_names():
+    assert canonical_url("https://user:pass@animenewsnetwork.com/story") == ""
+    assert canonical_url("https://animenewsnetwork.com:8443/story") == ""
+    assert canonical_url("https://metadata.internal/latest") == ""

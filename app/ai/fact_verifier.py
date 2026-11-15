@@ -294,10 +294,6 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("invalid_item")
             continue
         url = canonical_url(str(item.get("url") or "").strip())
-        if url in seen_urls:
-            rejected.append("duplicate_source_url")
-            continue
-        seen_urls.add(url)
         title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
         snippet = re.sub(r"\s+", " ", str(item.get("snippet") or item.get("content") or "")).strip()
         host = _host(url)
@@ -305,8 +301,9 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("missing_secure_source_or_content")
             continue
         if url in seen_urls:
-            rejected.append("duplicate_url")
+            rejected.append("duplicate_source_url")
             continue
+        seen_urls.add(url)
 
         haystack = f"{title} {snippet} {item.get('published') or item.get('published_date') or ''} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)

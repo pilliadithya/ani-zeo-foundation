@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.ai.fact_verifier import verify_evidence
+from app.ai.news_intelligence import extract_article_text
 
 log = logging.getLogger(__name__)
 
@@ -651,6 +652,7 @@ class AnimeResearchService:
                 "title": item.get("title") or "",
                 "url": item.get("link") or item.get("original_link") or item.get("url") or "",
                 "content": item.get("description") or "",
+                "raw_content": item.get("raw_content") or item.get("content") or "",
                 "published_date": "",
                 "score": None,
             }
@@ -666,6 +668,7 @@ class AnimeResearchService:
                 "title": item.get("name") or "",
                 "url": item.get("url") or "",
                 "content": item.get("text") or item.get("snippet") or "",
+                "raw_content": item.get("text") or "",
                 "published_date": item.get("datePublished") or "",
                 "score": None,
             }
@@ -688,10 +691,12 @@ class AnimeResearchService:
             if not snippet or not self._is_relevant_anime_result(item, query):
                 rejected += 1
                 continue
+            page = extract_article_text(item.get("raw_content") or item.get("content") or "")
             candidates.append({
                 "title": self._clean_search_title(item),
                 "url": url,
                 "snippet": snippet,
+                "page_text": page.get("page_text") or "",
                 "published": item.get("published_date") or item.get("published") or "",
                 "score": item.get("score"),
             })
@@ -931,7 +936,7 @@ class AnimeResearchService:
                             "time_range": None if self._is_historical_query(query) else "month",
                             "max_results": 5,
                             "include_answer": False,
-                            "include_raw_content": False,
+                            "include_raw_content": True,
                         },
                     )
                     response.raise_for_status()
@@ -971,6 +976,7 @@ class AnimeResearchService:
                     "title": self._clean_search_title(item),
                     "url": url,
                     "snippet": snippet,
+                    "page_text": extract_article_text(item.get("raw_content") or item.get("content") or "").get("page_text") or "",
                     "published": item.get("published_date") or "",
                     "score": item.get("score"),
                 })

@@ -674,12 +674,12 @@ class AnimeResearchService:
             for item in rows if isinstance(item, dict)
         ]
 
-    async def _fetch_missing_article_text(self, raw_results):
+    async def _fetch_missing_article_text(self, raw_results, query):
         """Retrieve bounded text only from recognised primary/reputable publishers."""
         semaphore = asyncio.Semaphore(5)
 
         async def enrich(item):
-            if not self._is_relevant_anime_result(item, self._active_news_query):
+            if not self._is_relevant_anime_result(item, query):
                 return item
             if not isinstance(item, dict):
                 return item
@@ -705,7 +705,6 @@ class AnimeResearchService:
                 item["raw_content"] = page["page_text"]
             return item
 
-        self._active_news_query = getattr(self, "_active_news_query", "")
         return await asyncio.gather(*(enrich(item) for item in (raw_results or [])[:5]))
 
     def _build_search_result(self, raw_results, query, language, provider, usage=None):
@@ -866,9 +865,8 @@ class AnimeResearchService:
             if payload.get("status") != "done":
                 log.warning("Live search provider=decodo outcome=failed category=job_status")
                 return None
-            self._active_news_query = query
             normalised = self._normalise_decodo_results(payload)
-            normalised = await self._fetch_missing_article_text(normalised)
+            normalised = await self._fetch_missing_article_text(normalised, query)
             result = self._build_search_result(
                 normalised, query, language, "decodo"
             )
@@ -918,9 +916,8 @@ class AnimeResearchService:
             if str(payload.get("code")) != "200":
                 log.warning("Live search provider=langsearch outcome=failed category=api_code")
                 return None
-            self._active_news_query = query
             normalised = self._normalise_langsearch_results(payload)
-            normalised = await self._fetch_missing_article_text(normalised)
+            normalised = await self._fetch_missing_article_text(normalised, query)
             result = self._build_search_result(
                 normalised, query, language, "langsearch"
             )
@@ -1000,8 +997,7 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
-            self._active_news_query = query
-            raw_results = await self._fetch_missing_article_text(raw_results)
+            raw_results = await self._fetch_missing_article_text(raw_results, query)
             candidates = []
             rejected = 0
             for item in raw_results:

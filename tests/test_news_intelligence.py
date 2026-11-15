@@ -119,3 +119,13 @@ def test_claim_alignment_checks_short_factual_sentences():
     unsupported = align_claims_to_sources("Season 3 airs in October.", evidence)
     assert supported["aligned_claims"]
     assert unsupported["unsupported_claims"]
+
+
+def test_claim_alignment_rejects_wrong_month_even_when_series_and_season_match():
+    evidence = [{
+        "title": "Mashle Season 3 premiere",
+        "url": "https://www.animenewsnetwork.com/news/example",
+        "snippet": "Mashle Season 3 will air in July.",
+    }]
+    result = align_claims_to_sources("Season 3 airs in October.", evidence)
+    assert result["unsupported_claims"]

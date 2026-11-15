@@ -248,7 +248,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         claim for claim in claim_alignment["unsupported_claims"]
         if not (
             _date_keys(claim) and _date_keys(claim).issubset(_date_keys(source_text))
-            and not (set(re.findall(r"(?<![A-Za-z0-9-])\\d+(?:[.,]\\d+)?%?(?![A-Za-z0-9-])", claim)) - source_numbers - supported_date_parts)
+            and not (set(re.findall(r"(?<![A-Za-z0-9-])\d+(?:[.,]\d+)?%?(?![A-Za-z0-9-])", claim)) - source_numbers - supported_date_parts)
         )
     ]
     invalid_dates = _invalid_date_claims(answer)

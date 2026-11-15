@@ -56,3 +56,54 @@ def test_different_seasons_of_same_franchise_are_not_merged():
     ]
     cluster_stories(items)
     assert items[0]["story_id"] != items[1]["story_id"]
+
+
+import pytest
+from app.ai.news_intelligence import align_claims_to_sources, fetch_article_text
+
+
+def test_claim_alignment_returns_supporting_source_span():
+    evidence = [{
+        "title": "Mashle Season 3 premiere date announced",
+        "url": "https://www.animenewsnetwork.com/news/example",
+        "snippet": "The studio announced the Mashle Season 3 premiere date.",
+        "page_text": "Mashle Season 3 will premiere on January 9, 2027.",
+    }]
+    result = align_claims_to_sources(
+        "Mashle Season 3 will premiere on January 9, 2027.",
+        evidence,
+    )
+    assert not result["unsupported_claims"]
+    assert result["aligned_claims"][0]["source_span"]
+    assert result["aligned_claims"][0]["source_url"].startswith("https://")
+
+
+def test_claim_alignment_flags_unmatched_episode_count():
+    evidence = [{
+        "title": "Mashle Season 3 announcement",
+        "url": "https://www.animenewsnetwork.com/news/example",
+        "snippet": "The new season was announced.",
+    }]
+    result = align_claims_to_sources(
+        "Mashle Season 3 will contain 24 episodes.",
+        evidence,
+    )
+    assert result["unsupported_claims"]
+
+
+@pytest.mark.asyncio
+async def test_article_fetch_rejects_unapproved_hosts_without_network_access():
+    result = await fetch_article_text(
+        "https://example.com/story",
+        {"animenewsnetwork.com"},
+    )
+    assert result["page_text"] == ""
+
+
+@pytest.mark.asyncio
+async def test_article_fetch_rejects_localhost_without_network_access():
+    result = await fetch_article_text(
+        "https://localhost/private",
+        {"localhost"},
+    )
+    assert result["page_text"] == ""

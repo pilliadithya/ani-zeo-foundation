@@ -113,7 +113,7 @@ def extract_article_text(raw_content: str, limit: int = 6000) -> dict:
     raw = str(raw_content or "")[:200_000]
     if not raw:
         return {"page_title": "", "page_description": "", "page_text": ""}
-    if not re.search(r"<(?:html|body|article|main|p|title|meta)\\b", raw, re.I):
+    if not re.search(r"<(?:html|body|article|main|p|title|meta)\b", raw, re.I):
         return {
             "page_title": "",
             "page_description": "",

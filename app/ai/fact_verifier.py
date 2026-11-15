@@ -181,6 +181,40 @@ def _invalid_date_claims(text: str) -> list[str]:
     return sorted(set(invalid))
 
 
+
+def _unsupported_news_headings(answer: str, evidence: list[dict]) -> list[str]:
+    """Reject news headings whose named subject appears only in an article body."""
+    stop = {
+        "a", "an", "the", "and", "or", "of", "for", "to", "in", "on", "at",
+        "new", "news", "update", "updates", "latest", "anime", "manga",
+        "season", "episode", "episodes", "premiere", "release", "date",
+        "reveals", "reveal", "announced", "announcement", "visual", "key",
+        "trailer", "first", "main", "official", "monthly", "coming",
+    }
+
+    def tokens(value: str) -> set[str]:
+        return {
+            token.casefold()
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9']*", value)
+            if len(token) > 2 and token.casefold() not in stop
+        }
+
+    headline_tokens = [
+        tokens(str(item.get("title") or ""))
+        for item in evidence if isinstance(item, dict) and item.get("title")
+    ]
+    unsupported = []
+    for line in str(answer or "").splitlines():
+        match = re.match(r"^\s*(?:[-*•]\s*)?\*\*(.{3,120}?)\*\*\s*:?[.!]?\s*$", line)
+        if not match:
+            continue
+        label = re.split(r"\s+[–—-]\s+", match.group(1), maxsplit=1)[0]
+        subject_tokens = tokens(label)
+        if subject_tokens and not any(subject_tokens & source for source in headline_tokens):
+            unsupported.append(label.strip())
+    return sorted(set(unsupported))
+
+
 def validate_generated_answer(answer: str, research_result: dict) -> dict:
     """Check dates, chapter identifiers and confirmation language against supplied evidence."""
     evidence = research_result.get("evidence") or []
@@ -194,6 +228,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    unsupported_story_headings = _unsupported_news_headings(answer, evidence)
     invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(
@@ -219,12 +254,13 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
         "invalid_dates": invalid_dates,
         "unsupported_confirmation": unsupported_confirmation,
         "conflicted_chapters": conflicted_chapters,
+        "unsupported_story_headings": unsupported_story_headings,
     }
 
 

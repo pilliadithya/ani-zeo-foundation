@@ -559,7 +559,7 @@ async def _chat_message_locked(update: Update, context) -> None:
     # Resolve ambiguous natural-language and multilingual requests with a bounded AI pass.
     if intent_result["scope"] == "clarify" or intent_result["confidence"] < 0.70:
         resolved = await context.application.bot_data["ai"].classify_intent(
-            message.text, recent_for_scope, profile.get("preferred_language")
+            message.text, recent_for_scope, preferred_language
         )
         if resolved:
             intent_result = {**intent_result, **resolved}
@@ -793,7 +793,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                         "watch_order": "Use a numbered watch/read order with short explanations and clear adaptation boundaries. ",
                         "recommendation": "Give a curated list with a distinct reason for each recommendation. ",
                         "industry_question": "Use a concise anime-industry report with relevant studios, creators or publishers. ",
-                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. " + ("Translate the previous assistant answer into natural Telugu script. This explicit request overrides the saved language preference. Preserve all important details; never show the generic anime-only redirect. " if re.search(r"\b(in|into|to)\s+telugu\b", message.text, re.I) else ("Translate the previous assistant answer into the explicitly requested language and script, preserving all important details. " if re.search(r"\b(in|into|to)\s+(english|hindi|tamil|kannada|malayalam)\b", message.text, re.I) else "")),
+                        "follow_up": "Answer the follow-up directly using the established conversation context; do not restart the explanation. Always keep the saved language preference and its required script. Do not switch languages merely because the user quotes or mentions another language; language changes happen through the language setting.",
                     }.get(intent_result["intent"], "Answer directly in a clear, natural format. ")
                     + f"Corrected query (only obvious typos): {normalized_text}"
                 ),

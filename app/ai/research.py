@@ -317,8 +317,11 @@ class AnimeResearchService:
         else:
             intent = "unclear"
 
-        if intent in {"off_topic", "unclear"}:
+        if intent == "off_topic":
             scope = "redirect"
+        elif intent == "unclear":
+            # Unknown is not the same as off-topic; ask the AI resolver first.
+            scope = "clarify"
         elif intent == "greeting":
             scope = "greeting"
         else:

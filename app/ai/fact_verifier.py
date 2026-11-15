@@ -230,7 +230,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
-    answer_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[.,]\d+)?%?(?![A-Za-z])", answer))
+    answer_numbers = set(re.findall(r"(?<![A-Za-z0-9-])\d+(?:[.,]\d+)?%?(?![A-Za-z0-9-])", answer))
     source_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[.,]\d+)?%?(?![A-Za-z])", source_text))
     unsupported_numbers = sorted(answer_numbers - source_numbers)
     unsupported_story_headings = _unsupported_news_headings(answer, evidence)

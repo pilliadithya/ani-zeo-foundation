@@ -54,6 +54,7 @@ class _ArticleTextParser(HTMLParser):
         self.title_parts = []
         self.description = ""
         self.text_parts = []
+        self.article_parts = []
         self._blocked = 0
         self._in_title = False
         self._capture_depth = 0
@@ -97,7 +98,8 @@ class _ArticleTextParser(HTMLParser):
             self.title_parts.append(text)
         # Prefer article/main text where present; retain a bounded fallback for
         # sites whose markup does not use semantic containers.
-        self.text_parts.append(text + " ")
+        target = self.article_parts if self._capture_depth else self.text_parts
+        target.append(text + " ")
 
     def result(self, limit=6000):
         text = re.sub(r"[ \t]+", " ", " ".join(self.text_parts))

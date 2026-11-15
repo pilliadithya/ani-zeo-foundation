@@ -71,3 +71,71 @@ These additive migrations were applied to the connected Supabase project. RLS is
 - Tavily snippets are never sent directly as the final user response; they pass through the shared writer.
 - The admin usage command requires an explicit allowlist.
 - No environment variable is required for the new code to start. Pricing estimates and the admin command remain opt-in.
+
+
+## Live-news story identity verification
+
+Live-news responses are checked for an attribution failure: an anime title mentioned only
+as a person's previous work or an incidental body-text reference must not become the subject
+of the current news item. Generated bold news headings are matched against collected source
+headlines, not just combined body snippets. Unsupported headings cause the generated response
+to fail closed through the existing localized verification fallback.
+
+This deterministic regression guard is not a complete semantic fact checker. Bounded page
+retrieval and sentence-level lexical source-span alignment are implemented below, but a
+source-domain reputation label or lexical match does not itself prove an individual claim.
+
+
+## News evidence enrichment and corroboration
+
+Search-provider results are normalised into one evidence shape. Where the provider returns
+article text (for example, LangSearch text or Tavily raw content), the pipeline extracts a
+bounded readable text field while discarding script, style, navigation, and footer content.
+The original search headline remains the canonical story subject.
+
+Evidence URLs are canonicalised: tracking parameters and fragments are removed, and
+non-HTTPS, credential-bearing, non-standard-port, localhost, local-domain, and literal-IP
+URLs are rejected. This is URL hygiene, not a substitute for network-level SSRF controls.
+
+Likely duplicate reports are grouped using conservative headline-token similarity. Each
+item carries a story cluster ID, report count, and distinct publisher count. Multiple
+articles from the same publisher count once for corroboration; source count is not the
+same as independent confirmation.
+
+The final verifier now checks unsupported numerical anchors as well as chapter numbers,
+dates, impossible calendar dates, conflicting chapter dates, official-confirmation language,
+and story headings that are not supported by source headlines. Extracted article text is
+included in the evidence used for these checks.
+
+These checks are deterministic guardrails, not full natural-language entailment. The later
+sentence-level layer attempts to align factual claims to source spans, but it can reject
+valid paraphrases and cannot reliably detect every contradiction, negation or implication.
+If a provider supplies no page text and bounded retrieval fails, the system uses the available
+search excerpt and fails closed on unsupported checks rather than pretending the page was fetched.
+
+
+## Bounded page retrieval and sentence-level evidence alignment
+
+When a search provider does not return meaningful raw article text, Ani Zeo may fetch the
+result page only when its hostname matches the maintained primary/reputable publisher
+allowlist. Retrieval is HTTPS-only, manually validates each redirect, checks DNS answers
+against public-address ranges, limits redirects, response size, content type and timeout,
+and extracts bounded readable text. This is an application-layer safeguard; deployment
+network egress rules should also block private and metadata address ranges.
+
+The final news verifier now attempts to align each factual-looking answer sentence to a
+source sentence, with the article headline as entity context. It records the source title,
+URL, matched source span and lexical coverage. Numerical anchors must occur in the matched
+span. Equivalent supported dates are normalized before numeric checks. Known chapter/date
+conflicts are included as explicit evidence context so an answer may accurately say that
+reports conflict without asserting one date as fact.
+
+This is transparent lexical alignment, not an LLM entailment judge. It can reject valid
+paraphrases and cannot reliably detect every contradiction, negation or subtle implication.
+A match is a traceable evidence pointer, not proof of truth. Keep unsupported claims out of
+the final answer and prefer a localized uncertainty response over invented details.
+
+Regression fixtures include recent real-world headline patterns such as the Re:ZERO Season 5
+announcement and unrelated titles mentioned in the same roundup. These are fixed fixtures,
+not live network tests; live publisher fetching remains dependent on provider responses,
+network reachability and the allowlist.

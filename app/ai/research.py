@@ -8,7 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import httpx
 
-from app.ai.fact_verifier import verify_evidence
+from app.ai.fact_verifier import PRIMARY_DOMAINS, REPUTABLE_NEWS_DOMAINS, verify_evidence
+from app.ai.news_intelligence import canonical_url, extract_article_text, fetch_article_text
 
 log = logging.getLogger(__name__)
 
@@ -651,6 +652,7 @@ class AnimeResearchService:
                 "title": item.get("title") or "",
                 "url": item.get("link") or item.get("original_link") or item.get("url") or "",
                 "content": item.get("description") or "",
+                **({"raw_content": item.get("raw_content")} if item.get("raw_content") else {}),
                 "published_date": "",
                 "score": None,
             }
@@ -672,6 +674,39 @@ class AnimeResearchService:
             for item in rows if isinstance(item, dict)
         ]
 
+    async def _fetch_missing_article_text(self, raw_results, query):
+        """Retrieve bounded text only from recognised primary/reputable publishers."""
+        semaphore = asyncio.Semaphore(5)
+
+        async def enrich(item):
+            if not isinstance(item, dict):
+                return item
+            if not self._is_relevant_anime_result(item, query):
+                return item
+            raw = item.get("raw_content") or item.get("page_text")
+            if raw and len(str(raw).strip()) > 250:
+                item["raw_content"] = raw
+                return item
+            safe_url = canonical_url(item.get("url") or item.get("link") or "")
+            if not safe_url:
+                return item
+            async with semaphore:
+                try:
+                    page = await asyncio.wait_for(
+                        fetch_article_text(
+                            safe_url,
+                            PRIMARY_DOMAINS | REPUTABLE_NEWS_DOMAINS,
+                        ),
+                        timeout=1.25,
+                    )
+                except asyncio.TimeoutError:
+                    return item
+            if page.get("page_text"):
+                item["raw_content"] = page["page_text"]
+            return item
+
+        return await asyncio.gather(*(enrich(item) for item in (raw_results or [])[:5]))
+
     def _build_search_result(self, raw_results, query, language, provider, usage=None):
         """Apply one relevance, provenance and presentation pipeline to every search provider."""
         candidates = []
@@ -688,10 +723,12 @@ class AnimeResearchService:
             if not snippet or not self._is_relevant_anime_result(item, query):
                 rejected += 1
                 continue
+            page = extract_article_text(item.get("raw_content") or item.get("content") or "")
             candidates.append({
                 "title": self._clean_search_title(item),
                 "url": url,
                 "snippet": snippet,
+                "page_text": page.get("page_text") or "",
                 "published": item.get("published_date") or item.get("published") or "",
                 "score": item.get("score"),
             })
@@ -828,8 +865,10 @@ class AnimeResearchService:
             if payload.get("status") != "done":
                 log.warning("Live search provider=decodo outcome=failed category=job_status")
                 return None
+            normalised = self._normalise_decodo_results(payload)
+            normalised = await self._fetch_missing_article_text(normalised, query)
             result = self._build_search_result(
-                self._normalise_decodo_results(payload), query, language, "decodo"
+                normalised, query, language, "decodo"
             )
             if result:
                 self._store(cache_key, result, ttl=300)
@@ -877,8 +916,10 @@ class AnimeResearchService:
             if str(payload.get("code")) != "200":
                 log.warning("Live search provider=langsearch outcome=failed category=api_code")
                 return None
+            normalised = self._normalise_langsearch_results(payload)
+            normalised = await self._fetch_missing_article_text(normalised, query)
             result = self._build_search_result(
-                self._normalise_langsearch_results(payload), query, language, "langsearch"
+                normalised, query, language, "langsearch"
             )
             if result:
                 self._store(cache_key, result, ttl=300)
@@ -931,7 +972,7 @@ class AnimeResearchService:
                             "time_range": None if self._is_historical_query(query) else "month",
                             "max_results": 5,
                             "include_answer": False,
-                            "include_raw_content": False,
+                            "include_raw_content": True,
                         },
                     )
                     response.raise_for_status()
@@ -956,6 +997,7 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
+            raw_results = await self._fetch_missing_article_text(raw_results, query)
             candidates = []
             rejected = 0
             for item in raw_results:
@@ -971,6 +1013,7 @@ class AnimeResearchService:
                     "title": self._clean_search_title(item),
                     "url": url,
                     "snippet": snippet,
+                    "page_text": extract_article_text(item.get("raw_content") or item.get("content") or "").get("page_text") or "",
                     "published": item.get("published_date") or "",
                     "score": item.get("score"),
                 })
@@ -1071,6 +1114,8 @@ class AnimeResearchService:
             "Overall evidence status: " + str(verification.get("overall_status") or "unknown"),
             "Important: search excerpts are evidence leads, not proof of every implied claim.",
             "Only describe something as officially confirmed when a primary source explicitly confirms it.",
+            "Multiple reports from one publisher count as one publisher, not independent corroboration.",
+            "Use article text as context, but keep the article headline as the canonical story subject.",
         ]
         conflicts = verification.get("conflicts") or []
         for conflict in conflicts[:5]:
@@ -1088,7 +1133,11 @@ class AnimeResearchService:
                 "Publisher: " + str(item.get("domain") or "")[:100],
                 "Published: " + str(item.get("published") or "not supplied"),
                 "Last checked: " + str(item.get("last_verified_at") or "not recorded"),
-                "Excerpt: " + str(item.get("snippet") or "")[:700],
+                "Story cluster: " + str(item.get("story_id") or "unclustered"),
+                "Reports in this story: " + str(item.get("story_source_count") or 1),
+                "Independent publishers for this story: " + str(item.get("story_independent_publishers") or 1),
+                "Excerpt: " + str(item.get("snippet") or "")[:500],
+                "Article text: " + str(item.get("page_text") or "")[:500],
                 "URL: " + str(item.get("url") or ""),
             ])
         return "\n".join(lines)[:3_000]

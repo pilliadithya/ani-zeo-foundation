@@ -8,6 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import re
 
+from app.ai.news_intelligence import align_claims_to_sources, canonical_url, cluster_stories
+
 
 PRIMARY_DOMAINS = {
     "onepiece.com",
@@ -87,7 +89,7 @@ def _chapter_date_claims(items: list[dict]) -> dict:
     iso_date = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
     claims = {}
     for item in items:
-        text = f"{item.get('title', '')} {item.get('snippet', '')}"
+        text = f"{item.get('title', '')} {item.get('snippet', '')} {item.get('page_text', '')}"
         chapter_matches = list(re.finditer(r"\bchapter\s*#?\s*(\d{1,4})\b", text, re.I))
         for index, chapter_match in enumerate(chapter_matches):
             chapter = chapter_match.group(1)
@@ -181,11 +183,45 @@ def _invalid_date_claims(text: str) -> list[str]:
     return sorted(set(invalid))
 
 
+
+def _unsupported_news_headings(answer: str, evidence: list[dict]) -> list[str]:
+    """Reject news headings whose named subject appears only in an article body."""
+    stop = {
+        "a", "an", "the", "and", "or", "of", "for", "to", "in", "on", "at",
+        "new", "news", "update", "updates", "latest", "anime", "manga",
+        "season", "episode", "episodes", "premiere", "release", "date",
+        "reveals", "reveal", "announced", "announcement", "visual", "key",
+        "trailer", "first", "main", "official", "monthly", "coming",
+    }
+
+    def tokens(value: str) -> set[str]:
+        return {
+            token.casefold()
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9']*", value)
+            if len(token) > 2 and token.casefold() not in stop
+        }
+
+    headline_tokens = [
+        tokens(str(item.get("title") or ""))
+        for item in evidence if isinstance(item, dict) and item.get("title")
+    ]
+    unsupported = []
+    for line in str(answer or "").splitlines():
+        match = re.match(r"^\s*(?:[-*•]\s*)?\*\*(.{3,120}?)\*\*\s*:?[.!]?\s*$", line)
+        if not match:
+            continue
+        label = re.split(r"\s+[–—-]\s+", match.group(1), maxsplit=1)[0]
+        subject_tokens = tokens(label)
+        if subject_tokens and not any(subject_tokens & source for source in headline_tokens):
+            unsupported.append(label.strip())
+    return sorted(set(unsupported))
+
+
 def validate_generated_answer(answer: str, research_result: dict) -> dict:
     """Check dates, chapter identifiers and confirmation language against supplied evidence."""
     evidence = research_result.get("evidence") or []
     source_text = " ".join(
-        f"{item.get('title', '')} {item.get('snippet', '')}"
+        f"{item.get('title', '')} {item.get('snippet', '')} {item.get('page_text', '')}"
         for item in evidence if isinstance(item, dict)
     )
     answer = str(answer or "")
@@ -194,6 +230,27 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    answer_numbers = set(re.findall(r"(?<![A-Za-z0-9-])\d+(?:[.,]\d+)?%?(?![A-Za-z0-9-])", answer))
+    source_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[.,]\d+)?%?(?![A-Za-z])", source_text))
+    supported_date_parts = set()
+    for date_key in _date_keys(answer) & _date_keys(source_text):
+        supported_date_parts.update(date_key.split("-"))
+    unsupported_numbers = sorted(answer_numbers - source_numbers - supported_date_parts)
+    unsupported_story_headings = _unsupported_news_headings(answer, evidence)
+    alignment_evidence = list(evidence)
+    for conflict in (research_result.get("verification") or {}).get("conflicts", []):
+        alignment_evidence.append({
+            "title": "Conflicting reports for Chapter " + str(conflict.get("chapter") or ""),
+            "snippet": "Conflicting reports list dates " + ", ".join(conflict.get("dates") or []),
+        })
+    claim_alignment = align_claims_to_sources(answer, alignment_evidence)
+    claim_alignment["unsupported_claims"] = [
+        claim for claim in claim_alignment["unsupported_claims"]
+        if not (
+            _date_keys(claim) and _date_keys(claim).issubset(_date_keys(source_text))
+            and not (set(re.findall(r"(?<![A-Za-z0-9-])\d+(?:[.,]\d+)?%?(?![A-Za-z0-9-])", claim)) - source_numbers - supported_date_parts)
+        )
+    ]
     invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(
@@ -219,12 +276,15 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings or unsupported_numbers or claim_alignment["unsupported_claims"]),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
         "invalid_dates": invalid_dates,
         "unsupported_confirmation": unsupported_confirmation,
         "conflicted_chapters": conflicted_chapters,
+        "unsupported_story_headings": unsupported_story_headings,
+        "unsupported_numbers": unsupported_numbers,
+        "claim_alignment": claim_alignment,
     }
 
 
@@ -249,7 +309,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if not isinstance(item, dict):
             rejected.append("invalid_item")
             continue
-        url = str(item.get("url") or "").strip()
+        url = canonical_url(str(item.get("url") or "").strip())
         title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
         snippet = re.sub(r"\s+", " ", str(item.get("snippet") or item.get("content") or "")).strip()
         host = _host(url)
@@ -257,8 +317,9 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("missing_secure_source_or_content")
             continue
         if url in seen_urls:
-            rejected.append("duplicate_url")
+            rejected.append("duplicate_source_url")
             continue
+        seen_urls.add(url)
 
         haystack = f"{title} {snippet} {item.get('published') or item.get('published_date') or ''} {url}".casefold()
         anime_relevant = any(term in haystack for term in ANIME_TERMS)
@@ -279,10 +340,12 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("low_search_relevance")
             continue
 
+        page_text = re.sub(r"\s+", " ", str(item.get("page_text") or "")).strip()[:6000]
         accepted.append({
             "title": title[:180],
             "url": url,
             "snippet": snippet[:900],
+            "page_text": page_text,
             "domain": host,
             "published": str(item.get("published") or item.get("published_date") or "")[:32],
             "last_verified_at": str(item.get("last_verified_at") or "")[:40],
@@ -294,6 +357,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if len(accepted) >= limit:
             break
 
+    cluster_stories(accepted)
     conflicts = _chapter_date_claims(accepted)
     primary_count = sum(x["verification_status"] == "primary_source" for x in accepted)
     reputable_count = sum(x["verification_status"] == "reputable_reporting" for x in accepted)
@@ -313,6 +377,13 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         "primary_source_count": primary_count,
         "reputable_source_count": reputable_count,
         "independent_publishers": len(seen_domains),
+        "story_clusters": {
+            item["story_id"]: {
+                "source_count": item["story_source_count"],
+                "independent_publishers": item["story_independent_publishers"],
+            }
+            for item in accepted
+        },
         "conflicts": conflicts,
     }
 

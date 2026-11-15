@@ -225,3 +225,89 @@ def test_valid_leap_day_is_normalized_and_checked():
         research,
     )
     assert result["ok"] is True
+
+
+
+def test_generated_answer_rejects_story_heading_taken_only_from_incidental_previous_work():
+    research = {
+        "evidence": [{
+            "title": "ATASHIn'CHI Next announces monthly new episodes",
+            "snippet": "Director Taku Kimura previously directed Chainsmoker Cat. New ATASHIn'CHI Next episodes begin January 1, 2027.",
+            "verification_status": "primary_source",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Chainsmoker Cat – New Episodes**\nNew episodes directed by Taku Kimura will debut monthly.",
+        research,
+    )
+    assert result["ok"] is False
+    assert result["unsupported_story_headings"] == ["Chainsmoker Cat"]
+
+
+def test_generated_answer_accepts_story_heading_supported_by_source_headline():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 reveals January 9, 2027 premiere date",
+            "snippet": "The first main visual and trailer were released.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Mashle: Magic and Muscle – Season 3**\nThe premiere is January 9, 2027.",
+        research,
+    )
+    assert result["ok"] is True
+    assert result["unsupported_story_headings"] == []
+
+
+def test_generated_answer_rejects_unsupported_numeric_claims():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 announcement",
+            "snippet": "The new season was announced.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer("Mashle Season 3 will have 24 episodes.", research)
+    assert result["ok"] is False
+    assert "24" in result["unsupported_numbers"]
+
+
+def test_extracted_article_text_can_support_numeric_claims():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 announcement",
+            "snippet": "The new season was announced.",
+            "page_text": "The studio confirmed the season will contain 12 episodes.",
+            "verification_status": "primary_source",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer("Mashle Season 3 will have 12 episodes.", research)
+    assert result["ok"] is True
+    assert result["unsupported_numbers"] == []
+
+
+def test_live_news_fixture_does_not_reassign_incidental_title_mention():
+    research = {
+        "evidence": [{
+            "title": "Re:ZERO Announces Season 5 at 10th Anniversary Event",
+            "snippet": (
+                "Re:ZERO -Starting Life in Another World- Season 5 was announced "
+                "at the 10th Anniversary Starlight Party, with an ultra teaser visual. "
+                "The same news roundup also mentions Gushing Over Magical Girls Season 2."
+            ),
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Gushing Over Magical Girls – Season 2**\n"
+        "The Re:ZERO Season 5 announcement was made at its 10th anniversary event.",
+        research,
+    )
+    assert result["ok"] is False
+    assert result["unsupported_story_headings"] == ["Gushing Over Magical Girls"]

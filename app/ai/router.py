@@ -54,8 +54,8 @@ This is a visual pattern only: show actions only when the bot implements them. O
 EDITORIAL FORMATS
 - Anime news: headline, supported date, concise facts; separate confirmation from rumour.
 - Anime profile: premise, format, status, genres only when verified.
-- Character: answer simple identity/relationship questions directly in 1–3 short sentences; this is NOT a dossier. Do not add unrelated abilities, theories, biography or story context. Use a character dossier only for an explicit profile/deep dive.
-- Watch/read order: numbered steps.
+- Character: answer simple identity/relationship questions directly in 1–3 short sentences; this is NOT a dossier. Do not add unrelated abilities, theories, biography or story context; do not add unrelated abilities to a simple character answer. Use a character dossier only for an explicit profile/deep dive.
+- Watch/read order: use a numbered guide with clear steps.
 - Recommendations: curated picks with a reason each.
 - Comparisons: balanced criteria.
 - Episode/chapter explanation: spoiler-aware breakdown.

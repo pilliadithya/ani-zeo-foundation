@@ -490,6 +490,17 @@ _EPHEMERAL_CONTEXT_MAX_USERS = 500
 _EPHEMERAL_CONTEXT_MAX_TURNS = 8
 
 
+def _response_history(consented: bool, persisted_history: list, ephemeral_history: list) -> list:
+    """Choose the correct context source without persisting non-consented turns."""
+    source = persisted_history if consented else ephemeral_history
+    return [
+        {"role": item["role"], "content": str(item.get("content") or "")}
+        for item in (source or [])[-16:]
+        if isinstance(item, dict) and item.get("role") in {"user", "assistant"}
+        and str(item.get("content") or "").strip()
+    ]
+
+
 def _get_ephemeral_context(bot_data: dict, user_id: int) -> dict:
     """Return a short-lived in-process context for users who have not opted into storage.
 
@@ -679,9 +690,12 @@ async def _chat_message_locked(update: Update, context) -> None:
                     # Migrate an older plain-text memory value safely.
                     summary_text = str(memory_record)[:1500]
 
-        history = await db.get_recent_messages(user.id, limit=16) if consented else list(ephemeral_context.get("history", []))
+        persisted_history = await db.get_recent_messages(user.id, limit=16) if consented else []
+        # Consented turns use DB history; non-consented turns use only the bounded RAM buffer.
+        history = _response_history(
+            consented, persisted_history, ephemeral_context.get("history", [])
+        )
         # This immutable, provider-neutral snapshot includes the current turn exactly once.
-        history = [dict(item) for item in history]
         history.append({"role": "user", "content": normalized_text})
 
         live_result = None

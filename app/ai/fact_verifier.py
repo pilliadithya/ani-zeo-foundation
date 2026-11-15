@@ -8,7 +8,7 @@ from datetime import date
 from urllib.parse import urlparse
 import re
 
-from app.ai.news_intelligence import cluster_stories
+from app.ai.news_intelligence import canonical_url, cluster_stories
 
 
 PRIMARY_DOMAINS = {
@@ -291,7 +291,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if not isinstance(item, dict):
             rejected.append("invalid_item")
             continue
-        url = str(item.get("url") or "").strip()
+        url = canonical_url(str(item.get("url") or "").strip())
         title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
         snippet = re.sub(r"\s+", " ", str(item.get("snippet") or item.get("content") or "")).strip()
         host = _host(url)

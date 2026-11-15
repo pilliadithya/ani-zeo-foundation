@@ -89,7 +89,7 @@ def _chapter_date_claims(items: list[dict]) -> dict:
     iso_date = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
     claims = {}
     for item in items:
-        text = f"{item.get('title', '')} {item.get('snippet', '')}"
+        text = f"{item.get('title', '')} {item.get('snippet', '')} {item.get('page_text', '')}"
         chapter_matches = list(re.finditer(r"\bchapter\s*#?\s*(\d{1,4})\b", text, re.I))
         for index, chapter_match in enumerate(chapter_matches):
             chapter = chapter_match.group(1)
@@ -221,7 +221,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     """Check dates, chapter identifiers and confirmation language against supplied evidence."""
     evidence = research_result.get("evidence") or []
     source_text = " ".join(
-        f"{item.get('title', '')} {item.get('snippet', '')}"
+        f"{item.get('title', '')} {item.get('snippet', '')} {item.get('page_text', '')}"
         for item in evidence if isinstance(item, dict)
     )
     answer = str(answer or "")
@@ -230,6 +230,9 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         - set(re.findall(r"\bchapter\s*#?\s*(\d{1,4})\b", source_text, re.I))
     )
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
+    answer_numbers = set(re.findall(r"(?<![A-Za-z])\\d+(?:[.,]\\d+)?%?(?![A-Za-z])", answer))
+    source_numbers = set(re.findall(r"(?<![A-Za-z])\\d+(?:[.,]\\d+)?%?(?![A-Za-z])", source_text))
+    unsupported_numbers = sorted(answer_numbers - source_numbers)
     unsupported_story_headings = _unsupported_news_headings(answer, evidence)
     invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
@@ -256,13 +259,14 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings or unsupported_numbers),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
         "invalid_dates": invalid_dates,
         "unsupported_confirmation": unsupported_confirmation,
         "conflicted_chapters": conflicted_chapters,
         "unsupported_story_headings": unsupported_story_headings,
+        "unsupported_numbers": unsupported_numbers,
     }
 
 

@@ -232,9 +232,25 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     unsupported_dates = sorted(_date_keys(answer) - _date_keys(source_text))
     answer_numbers = set(re.findall(r"(?<![A-Za-z0-9-])\d+(?:[.,]\d+)?%?(?![A-Za-z0-9-])", answer))
     source_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[.,]\d+)?%?(?![A-Za-z])", source_text))
-    unsupported_numbers = sorted(answer_numbers - source_numbers)
+    supported_date_parts = set()
+    for date_key in _date_keys(answer) & _date_keys(source_text):
+        supported_date_parts.update(date_key.split("-"))
+    unsupported_numbers = sorted(answer_numbers - source_numbers - supported_date_parts)
     unsupported_story_headings = _unsupported_news_headings(answer, evidence)
-    claim_alignment = align_claims_to_sources(answer, evidence)
+    alignment_evidence = list(evidence)
+    for conflict in (research_result.get("verification") or {}).get("conflicts", []):
+        alignment_evidence.append({
+            "title": "Conflicting reports for Chapter " + str(conflict.get("chapter") or ""),
+            "snippet": "Conflicting reports list dates " + ", ".join(conflict.get("dates") or []),
+        })
+    claim_alignment = align_claims_to_sources(answer, alignment_evidence)
+    claim_alignment["unsupported_claims"] = [
+        claim for claim in claim_alignment["unsupported_claims"]
+        if not (
+            _date_keys(claim) and _date_keys(claim).issubset(_date_keys(source_text))
+            and not (set(re.findall(r"(?<![A-Za-z0-9-])\\d+(?:[.,]\\d+)?%?(?![A-Za-z0-9-])", claim)) - source_numbers - supported_date_parts)
+        )
+    ]
     invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(

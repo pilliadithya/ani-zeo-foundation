@@ -6,6 +6,7 @@ import re
 import secrets
 from contextlib import asynccontextmanager
 from typing import Optional
+from urllib.parse import quote_plus
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -217,6 +218,49 @@ async def find_anime_cover(title: str) -> Optional[dict]:
     except Exception as exc:
         # Image lookup is optional: an AniList outage must not stop the AI reply.
         log.warning("AniList cover lookup failed (%s)", type(exc).__name__)
+        return None
+
+
+CHARACTER_POSTER_QUERY = """query ($search: String) { Character(search: $search) { name { full } image { large } media(perPage: 3) { nodes { title { romaji english } siteUrl } } } }"""
+
+
+def extract_character_search_term(user_text: str) -> Optional[str]:
+    text = re.sub(r"\\s+", " ", str(user_text or "")).strip()
+    text = re.sub(r"^(?:who is|tell me about|info about|information about|details about|explain)\\s+", "", text, flags=re.I)
+    text = re.sub(r"\\b(character|from|in|anime|please|bro)\\b", " ", text, flags=re.I)
+    text = re.sub(r"\\s+", " ", text).strip(" .?!,:;-")
+    return text[:80] if text and len(text.split()) <= 8 else None
+
+
+async def find_character_poster(query: str) -> Optional[dict]:
+    """Fetch character artwork and associated anime titles from AniList."""
+    if not query:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=7.0) as client:
+            response = await client.post(
+                ANILIST_URL,
+                json={"query": CHARACTER_POSTER_QUERY, "variables": {"search": query}},
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            character = response.json().get("data", {}).get("Character")
+        if not character or not (character.get("image") or {}).get("large"):
+            return None
+        media = (character.get("media") or {}).get("nodes") or []
+        titles = []
+        for item in media[:3]:
+            names = item.get("title") or {}
+            title = names.get("english") or names.get("romaji")
+            if title and title not in titles:
+                titles.append(title)
+        return {
+            "name": (character.get("name") or {}).get("full") or query,
+            "image_url": character["image"]["large"],
+            "anime_titles": titles,
+        }
+    except Exception as exc:
+        log.warning("AniList character artwork lookup failed (%s)", type(exc).__name__)
         return None
 
 
@@ -672,6 +716,32 @@ async def _chat_message_locked(update: Update, context) -> None:
             )
         return
 
+    # Trailer follow-ups resolve against the active anime instead of restarting a profile.
+    trailer_request = bool(re.search(r"\\b(trailer|teaser|pv|preview)\\b|ట్రైలర్|టీజర్", normalized_text, re.I))
+    if trailer_request:
+        topic = conversation_state.get("active_topic")
+        if not topic:
+            topic = next((str(item.get("name")) for item in (conversation_state.get("resolved_entities") or []) if isinstance(item, dict) and item.get("name")), None)
+        if not topic:
+            topic = research.extract_title(normalized_text)
+        if topic:
+            search_url = "https://www.youtube.com/results?search_query=" + quote_plus(str(topic) + " official anime trailer")
+            language = (preferred_language or "english").lower()
+            if language in {"tenglish", "telugu"}:
+                reply = f"🎬 **{topic} — Trailer**\\n\\nIkkada {topic} official anime trailer search link. Official channel/source ni check chesi open cheyyi:\\n{search_url}"
+            elif language in {"hinglish", "hindi"}:
+                reply = f"🎬 **{topic} — Trailer**\\n\\nYahan {topic} ke anime trailer ka YouTube search link hai. Official channel/source verify karke open karein:\\n{search_url}"
+            else:
+                reply = f"🎬 **{topic} — Trailer search**\\n\\nOpen this YouTube search and choose the official trailer from the publisher or studio channel:\\n{search_url}"
+            await send_formatted_answer(message, reply)
+            if consented:
+                await db.save_exchange(user.id, message.text, reply, getattr(update, "update_id", None))
+            else:
+                trailer_history = list(recent_for_scope)
+                trailer_history.extend([{"role": "user", "content": normalized_text}, {"role": "assistant", "content": reply}])
+                _set_ephemeral_context(context.application.bot_data, user.id, trailer_history, active_topic=topic, resolved_entities=conversation_state.get("resolved_entities", []))
+            return
+
     try:
         # Personalization can be disabled in the user's profile.
         personalization_enabled = consented and profile.get("personalization_enabled", True) is not False
@@ -758,10 +828,19 @@ async def _chat_message_locked(update: Update, context) -> None:
 
         metadata = None
         title = None
+        character_art = None
+        # Resolve common franchise qualifiers to the canonical AniList title.
         if not live_result:
             title = research.extract_title(normalized_text)
             if title:
+                title = re.sub(r"\\s+(?:classic|original|old|first series)$", "", title, flags=re.I).strip()
                 metadata = await research.anime_metadata(title)
+            if intent_result["intent"] == "character_question":
+                character_term = extract_character_search_term(normalized_text)
+                if not character_term:
+                    character_term = extract_character_search_term(message.text)
+                character_art = await find_character_poster(character_term) if character_term else None
+
                 if metadata is None:
                     await message.reply_text(REDIRECT)
                     return
@@ -886,6 +965,14 @@ async def _chat_message_locked(update: Update, context) -> None:
                 except Exception as usage_exc:
                     # Telemetry must never make a successful user-facing answer fail.
                     log.warning("AI usage persistence skipped (%s)", type(usage_exc).__name__)
+
+        if character_art and character_art.get("image_url"):
+            try:
+                anime_names = ", ".join(character_art.get("anime_titles") or [])
+                caption = "👤 " + character_art["name"] + (f"\\n🎌 {anime_names}" if anime_names else "")
+                await message.reply_photo(photo=character_art["image_url"], caption=caption[:900])
+            except Exception as exc:
+                log.warning("Telegram character artwork send failed (%s)", type(exc).__name__)
 
         if metadata and metadata.get("cover"):
             try:

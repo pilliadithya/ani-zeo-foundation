@@ -197,7 +197,7 @@ async def fetch_article_text(url: str, allowed_domains: set[str], limit: int = 6
         try:
             addresses = await asyncio.wait_for(
                 asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM),
-                timeout=1.5,
+                timeout=0.4,
             )
         except (OSError, asyncio.TimeoutError):
             return {"page_title": "", "page_description": "", "page_text": ""}
@@ -213,7 +213,7 @@ async def fetch_article_text(url: str, allowed_domains: set[str], limit: int = 6
 
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(4.0, connect=2.0),
+                timeout=httpx.Timeout(1.2, connect=0.6),
                 follow_redirects=False,
                 headers={"User-Agent": "AniZeoNewsBot/1.0 (+https://ani-zeo-foundation.onrender.com)"},
             ) as client:
@@ -263,7 +263,7 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
 
     def tokens(value):
         return {
-            token.casefold() for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]*|\d{1,4}(?:[.,]\d+)?%?", value or "")
+            token.casefold() for token in re.findall(r"[^\W_][\w'-]*|\d{1,4}(?:[.,]\d+)?%?", value or "")
             if (len(token) > 2 or token.isdigit()) and token.casefold() not in stop
         }
 
@@ -283,10 +283,10 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
     for raw_sentence in re.split(r"(?<=[.!?])\s+|\n+", str(answer or "")):
         sentence = re.sub(r"^\s*(?:[-*•]\s*)?(?:\*\*)?|(?:\*\*)?\s*$", "", raw_sentence).strip()
         claim_tokens = tokens(sentence)
-        if len(claim_tokens) < 3:
+        if len(claim_tokens) < 2:
             continue
         # Skip conversational framing and headings without a factual predicate.
-        if len(sentence) < 28:
+        if re.fullmatch(r"\s*(?:[-*•]\s*)?\*\*[^*]+\*\*\s*:?[.!]?\s*", raw_sentence):
             continue
         best = None
         best_score = 0.0

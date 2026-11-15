@@ -288,16 +288,16 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
         # Skip conversational framing and headings without a factual predicate.
         if re.fullmatch(r"\s*(?:[-*•]\s*)?\*\*[^*]+\*\*\s*:?[.!]?\s*", raw_sentence):
             continue
+        anchor_tokens = {
+            match.group(0).casefold()
+            for match in re.finditer(r"\b[A-Z][A-Za-z0-9'-]{2,}\b|\b\d{1,4}(?:[.,]\d+)?%?\b", sentence)
+            if match.start() > 0
+        }
         best = None
         best_score = 0.0
         for item, source_sentence, source_tokens in source_sentences:
             overlap = claim_tokens & source_tokens
             coverage = len(overlap) / max(1, len(claim_tokens))
-            anchor_tokens = {
-                match.group(0).casefold()
-                for match in re.finditer(r"\b[A-Z][A-Za-z0-9'-]{2,}\b|\b\d{1,4}(?:[.,]\d+)?%?\b", sentence)
-                if match.start() > 0
-            }
             anchor_coverage = len(anchor_tokens & source_tokens) / max(1, len(anchor_tokens))
             score = coverage * 0.75 + anchor_coverage * 0.25
             if score > best_score:

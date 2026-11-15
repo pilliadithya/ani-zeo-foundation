@@ -980,25 +980,31 @@ async def test_multilingual_intent_resolver_preserves_context_and_resolved_entit
     assert captured["max_tokens"] <= 220
 
 
-def test_intent_resolver_prompt_has_multilingual_examples_and_ambiguity_guard():
+@pytest.mark.asyncio
+async def test_intent_resolver_prompt_has_multilingual_examples_and_ambiguity_guard():
     router = AIRouter(FakeSettings())
-    messages = router._build_messages(
-        [{"role": "user", "content": "Dani trailer ivvu"}],
-        "english",
-    )
-    prompt = (
-        " ".join(item["content"] for item in messages)
-        + " "
-        + " ".join([
-            "Understand any language, script, transliteration and code-switching",
-            "Naku Kaiju No. 8 gurinchi cheppu",
-            "Naruto ke baare mein batao",
-            "నరుటో గురించి చెప్పు",
-            "if multiple entities are plausible, use unclear rather than guessing",
-        ])
-    )
-    # The resolver's dedicated prompt is exercised by classify_intent tests;
-    # this assertion guards the shared response layer's multilingual language policy.
-    assert "Tenglish" in SYSTEM_PROMPT
-    assert "Hinglish" in SYSTEM_PROMPT
-    assert "follow the user's language" in SYSTEM_PROMPT
+    captured = {}
+
+    async def fake_generate(messages, providers, max_tokens):
+        captured["messages"] = messages
+        return (
+            json.dumps({
+                "intent": "unclear",
+                "domain": "unclear",
+                "confidence": 0.2,
+                "normalized_query": "Dani trailer ivvu",
+                "active_topic": None,
+                "resolved_entities": [],
+                "is_follow_up": False,
+            }),
+            "gemini",
+            {},
+        )
+
+    router._generate_with_fallback = fake_generate
+    await router.classify_intent("Dani trailer ivvu", [], language="english")
+    prompt = captured["messages"][0]["content"]
+    assert "Naku Kaiju No. 8 gurinchi cheppu" in prompt
+    assert "Naruto ke baare mein batao" in prompt
+    assert "నరుటో గురించి చెప్పు" in prompt
+    assert "if multiple entities are plausible, use unclear rather than guessing" in prompt

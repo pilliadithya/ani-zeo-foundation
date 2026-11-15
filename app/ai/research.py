@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.ai.fact_verifier import PRIMARY_DOMAINS, REPUTABLE_NEWS_DOMAINS, verify_evidence
-from app.ai.news_intelligence import extract_article_text, fetch_article_text
+from app.ai.news_intelligence import canonical_url, extract_article_text, fetch_article_text
 
 log = logging.getLogger(__name__)
 
@@ -676,25 +676,37 @@ class AnimeResearchService:
 
     async def _fetch_missing_article_text(self, raw_results):
         """Retrieve bounded text only from recognised primary/reputable publishers."""
-        semaphore = asyncio.Semaphore(3)
+        semaphore = asyncio.Semaphore(5)
 
         async def enrich(item):
+            if not self._is_relevant_anime_result(item, self._active_news_query):
+                return item
             if not isinstance(item, dict):
                 return item
             raw = item.get("raw_content") or item.get("page_text")
             if raw and len(str(raw).strip()) > 250:
                 item["raw_content"] = raw
                 return item
+            safe_url = canonical_url(item.get("url") or item.get("link") or "")
+            if not safe_url:
+                return item
             async with semaphore:
-                page = await fetch_article_text(
-                    item.get("url") or item.get("link") or "",
-                    PRIMARY_DOMAINS | REPUTABLE_NEWS_DOMAINS,
-                )
+                try:
+                    page = await asyncio.wait_for(
+                        fetch_article_text(
+                            safe_url,
+                            PRIMARY_DOMAINS | REPUTABLE_NEWS_DOMAINS,
+                        ),
+                        timeout=1.25,
+                    )
+                except asyncio.TimeoutError:
+                    return item
             if page.get("page_text"):
                 item["raw_content"] = page["page_text"]
             return item
 
-        return await asyncio.gather(*(enrich(item) for item in (raw_results or [])))
+        self._active_news_query = getattr(self, "_active_news_query", "")
+        return await asyncio.gather(*(enrich(item) for item in (raw_results or [])[:5]))
 
     def _build_search_result(self, raw_results, query, language, provider, usage=None):
         """Apply one relevance, provenance and presentation pipeline to every search provider."""
@@ -854,6 +866,7 @@ class AnimeResearchService:
             if payload.get("status") != "done":
                 log.warning("Live search provider=decodo outcome=failed category=job_status")
                 return None
+            self._active_news_query = query
             normalised = self._normalise_decodo_results(payload)
             normalised = await self._fetch_missing_article_text(normalised)
             result = self._build_search_result(
@@ -905,6 +918,7 @@ class AnimeResearchService:
             if str(payload.get("code")) != "200":
                 log.warning("Live search provider=langsearch outcome=failed category=api_code")
                 return None
+            self._active_news_query = query
             normalised = self._normalise_langsearch_results(payload)
             normalised = await self._fetch_missing_article_text(normalised)
             result = self._build_search_result(
@@ -986,6 +1000,7 @@ class AnimeResearchService:
                 else:
                     raw_results = await fetch_results(search_query)
 
+            self._active_news_query = query
             raw_results = await self._fetch_missing_article_text(raw_results)
             candidates = []
             rejected = 0

@@ -477,7 +477,7 @@ def test_intent_detector_does_not_treat_unrelated_current_question_as_anime_foll
     history = [{"role": "user", "content": "Tell me about One Piece anime"}]
     detected = AnimeResearchService.detect_intent("What's the weather today?", history)
     assert detected["scope"] == "redirect"
-    assert detected["intent"] == "unclear"
+    assert detected["intent"] == "off_topic"
 
 
 def test_output_budget_scales_with_requested_depth():

@@ -17,7 +17,7 @@ ANILIST = "https://graphql.anilist.co"
 JIKAN = "https://api.jikan.moe/v4/anime"
 REDIRECT = "I'm Ani Zeo, your anime companion, so I can help with anime and manga topics. 🎌"
 ANIME = re.compile(r"\b(anime|manga|manhwa|manhua|light novel|watch order|read order|filler|canon|anime studio|seiyuu|voice actor|anime character|anime film|anime movie|anime season|anime episode|japanese animation|shonen|shoujo|seinen|isekai)\b", re.I)
-OFF_TOPIC = re.compile(r"\b(python|javascript|typescript|programming|write code|debug code|cybersecurity|ethical hacking|sql query|homework|politics|stock market|crypto|investment|malware|exploit code)\b", re.I)
+OFF_TOPIC = re.compile(r"\b(python|javascript|typescript|programming|write code|debug code|cybersecurity|ethical hacking|sql query|homework|politics|stock market|crypto|investment|malware|exploit code|photosynthesis|weather|forecast|temperature|cricket|football|basketball|sports|mathematics|math homework|chemistry homework|physics homework|recipe|cooking|travel itinerary)\b", re.I)
 GREETING = re.compile(r"^(hi|hello|hey|yo|hii+|namaste|thanks|thank you|ok|okay|bye|how are you|what(?:\s+is)? up|good morning|good afternoon|good evening|nice to meet you)(?:\s+(?:ani zeo|bro))*[!.? ]*$", re.I)
 LIVE = re.compile(r"\b(latest|newest|today|currently|right now|this week|recent|breaking|news|update|updates|just announced|announced|announcement|airing now|airing today|release date|release updates|upcoming|streaming availability|where can i watch|new episode|next episode|schedule)\b", re.I)
 TITLE = re.compile(r"^(?:tell me about|info about|information about|details about|watch order for|watch order of|read order for|read order of)\s+(.{2,80})$", re.I)
@@ -294,7 +294,16 @@ class AnimeResearchService:
 
         # Explicit off-topic requests cannot be rescued by stale context or generic
         # continuation words such as "explain".
-        explicit_off_topic = bool(OFF_TOPIC.search(corrected) and not explicit_anime_scope)
+        prior_user_was_off_topic = bool(
+            last_user and OFF_TOPIC.search(last_user["content"].strip())
+        )
+        context_only_continuation = bool(
+            has_reference or continuation_ascii or continuation_telugu or short_continuation
+        )
+        explicit_off_topic = bool(
+            not explicit_anime_scope
+            and (OFF_TOPIC.search(corrected) or (prior_user_was_off_topic and context_only_continuation))
+        )
 
         if GREETING.fullmatch(corrected):
             intent = "greeting"
@@ -317,8 +326,11 @@ class AnimeResearchService:
         else:
             intent = "unclear"
 
-        if intent in {"off_topic", "unclear"}:
+        if intent == "off_topic":
             scope = "redirect"
+        elif intent == "unclear":
+            # Unknown is not the same as off-topic; ask the AI resolver first.
+            scope = "clarify"
         elif intent == "greeting":
             scope = "greeting"
         else:

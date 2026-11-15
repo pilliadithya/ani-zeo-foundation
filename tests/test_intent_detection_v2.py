@@ -66,7 +66,7 @@ def test_old_anime_context_does_not_capture_followup_after_offtopic_turn():
     )
     result = AnimeResearchService.detect_intent("Explain it more", conversation)
     assert result["scope"] == "redirect"
-    assert result["intent"] == "unclear"
+    assert result["intent"] == "off_topic"
 
 
 def test_synthetic_active_topic_does_not_override_latest_offtopic_user_turn():
@@ -86,19 +86,19 @@ def test_offtopic_request_wins_even_when_old_anime_context_exists():
     assert result["intent"] == "off_topic"
 
 
-def test_ambiguous_pronoun_without_context_does_not_guess():
+def test_ambiguous_pronoun_without_context_requests_clarification():
     result = AnimeResearchService.detect_intent(
         "Konchem athani power cheppa galava?",
         history(("user", "How are you?"), ("assistant", "I'm good.")),
     )
-    assert result["scope"] == "redirect"
+    assert result["scope"] == "clarify"
     assert result["context_used"] is False
 
 
 def test_weather_question_is_not_captured_by_anime_context():
     result = AnimeResearchService.detect_intent("What's the weather today?", ONE_PIECE)
     assert result["scope"] == "redirect"
-    assert result["intent"] == "unclear"
+    assert result["intent"] == "off_topic"
 
 
 def test_character_question_without_named_entity_uses_recent_anime_context():

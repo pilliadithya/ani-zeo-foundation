@@ -742,7 +742,7 @@ async def _chat_message_locked(update: Update, context) -> None:
             fact_check = validate_generated_answer(answer, live_result)
             if not fact_check["ok"]:
                 log.warning(
-                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s invalid_dates=%s unsupported_confirmation=%s conflicted_chapters=%s unsupported_story_headings=%s unsupported_numbers=%s)",
+                    "Research answer rejected by fact verifier (unsupported_chapters=%s unsupported_dates=%s invalid_dates=%s unsupported_confirmation=%s conflicted_chapters=%s unsupported_story_headings=%s unsupported_numbers=%s unsupported_claims=%s)",
                     fact_check["unsupported_chapters"],
                     fact_check["unsupported_dates"],
                     fact_check.get("invalid_dates", []),
@@ -750,6 +750,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                     fact_check["conflicted_chapters"],
                     fact_check.get("unsupported_story_headings", []),
                     fact_check.get("unsupported_numbers", []),
+                    fact_check.get("claim_alignment", {}).get("unsupported_claims", []),
                 )
                 answer = verification_fallback(
                     profile.get("preferred_language"), fact_check

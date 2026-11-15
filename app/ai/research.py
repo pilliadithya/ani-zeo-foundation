@@ -68,10 +68,22 @@ class AnimeResearchService:
         "anounce": "announce", "reccomend": "recommend",
         "recomend": "recommend", "recomendation": "recommendation",
         "recomendations": "recommendations", "sugest": "suggest",
-        "charcter": "character", "episdoe": "episode",
-        "eposide": "episode", "stduio": "studio",
+        "charcter": "character", "charecter": "character",
+        "episdoe": "episode", "eposide": "episode", "epiode": "episode",
+        "stduio": "studio", "traler": "trailer", "trailor": "trailer",
+        "seasson": "season", "sesson": "season", "mvoie": "movie",
+        "movoe": "movie", "kaijuu": "Kaiju", "summery": "summary",
+        "suggesion": "suggestion",
     }
-    CORRECTION_VOCAB = ("anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro", "loki", "gojo", "sukuna", "ichigo", "goku", "tanjiro", "one", "piece", "release", "updates", "update", "announcement", "recommend", "recommendations", "character", "episode", "studio", "latest", "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen", "demon", "slayer", "frieren", "leveling")
+    CORRECTION_VOCAB = (
+        "anime", "manga", "naruto", "boruto", "bleach", "luffy", "zoro",
+        "gojo", "sukuna", "ichigo", "goku", "tanjiro", "kaiju", "trailer",
+        "teaser", "season", "episode", "character", "movie", "chapter",
+        "summary", "studio", "release", "updates", "update", "announcement",
+        "recommend", "recommendations", "suggest", "suggestion", "latest",
+        "news", "airing", "streaming", "crunchyroll", "jujutsu", "kaisen",
+        "demon", "slayer", "frieren", "leveling", "one", "piece",
+    )
     INTENT_ENTITIES = (
         "one piece", "naruto", "boruto", "bleach", "dragon ball", "big three", "big 3",
         "demon slayer", "jujutsu kaisen", "attack on titan",
@@ -82,7 +94,12 @@ class AnimeResearchService:
 
     @classmethod
     def correct_typos(cls, text):
-        """Conservative anime-aware correction; only correct known domain vocabulary."""
+        """Conservatively repair obvious typos without rewriting names or user meaning.
+
+        Exact aliases are deterministic. Fuzzy matching is restricted to a compact
+        anime/task vocabulary, requires a strong score and a clear margin, and never
+        guesses arbitrary proper nouns. The original user text remains untouched.
+        """
         corrected = re.sub(r"\s+", " ", (text or "").strip())
         for pattern, replacement in cls.TYPO_PHRASES:
             corrected = re.sub(pattern, replacement, corrected, flags=re.I)
@@ -196,7 +213,7 @@ class AnimeResearchService:
         # English, Romanized Telugu and Telugu-script references. Telugu script is
         # matched directly because Python's ASCII-style \b boundaries are unsuitable.
         reference_ascii = bool(re.search(
-            r"\b(he|she|his|her|him|it|they|them|their|that|this|those|these|"
+            r"\b(he|she|his|her|him|it|its|they|them|their|that|this|those|these|"
             r"what about|how about|which one|tell me more|"
             r"athani|anthani|athanu|athaniki|athanigurinchi|"
             r"vaadi|vadi|vaadu|vaadini|vaadiki|"

@@ -274,7 +274,7 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
         title = str(item.get("title") or "")
         for field in ("snippet", "page_text"):
             source = str(item.get(field) or "")
-            for sentence in re.split(r"(?<=[.!?])\\s+|\\n+", source):
+            for sentence in re.split(r"(?<=[.!?])\s+|\n+", source):
                 sentence_tokens = tokens(title + " " + sentence)
                 if sentence_tokens:
                     source_sentences.append((item, sentence.strip()[:500], sentence_tokens))

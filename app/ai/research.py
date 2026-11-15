@@ -213,7 +213,7 @@ class AnimeResearchService:
         # English, Romanized Telugu and Telugu-script references. Telugu script is
         # matched directly because Python's ASCII-style \b boundaries are unsuitable.
         reference_ascii = bool(re.search(
-            r"\b(he|she|his|her|him|it|they|them|their|that|this|those|these|"
+            r"\b(he|she|his|her|him|it|its|they|them|their|that|this|those|these|"
             r"what about|how about|which one|tell me more|"
             r"athani|anthani|athanu|athaniki|athanigurinchi|"
             r"vaadi|vadi|vaadu|vaadini|vaadiki|"

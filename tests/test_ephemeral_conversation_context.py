@@ -8,6 +8,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 from app.main import (
     _EPHEMERAL_CONTEXT_TTL_SECONDS,
     _get_ephemeral_context,
+    _response_history,
     _set_ephemeral_context,
 )
 
@@ -67,3 +68,29 @@ def test_ephemeral_context_discards_invalid_roles_and_empty_content():
     assert _get_ephemeral_context(bot_data, 123)["history"] == [
         {"role": "assistant", "content": "valid"}
     ]
+
+
+
+def test_response_history_uses_ephemeral_context_for_nonconsented_user():
+    persisted = [{"role": "user", "content": "wrong persisted topic"}]
+    ephemeral = [
+        {"role": "user", "content": "Tell me about Kaiju No. 8"},
+        {"role": "assistant", "content": "Kaiju No. 8 is an anime."},
+    ]
+    result = _response_history(False, persisted, ephemeral)
+    assert result == ephemeral
+
+
+def test_response_history_uses_database_only_for_consented_user():
+    persisted = [{"role": "user", "content": "saved conversation"}]
+    ephemeral = [{"role": "user", "content": "volatile conversation"}]
+    assert _response_history(True, persisted, ephemeral) == persisted
+
+
+def test_response_history_filters_invalid_roles_and_bounds_turns():
+    source = [{"role": "system", "content": "not allowed"}]
+    source.extend({"role": "user", "content": f"turn-{i}"} for i in range(20))
+    result = _response_history(False, [], source)
+    assert len(result) == 16
+    assert result[0]["content"] == "turn-4"
+    assert all(item["role"] == "user" for item in result)

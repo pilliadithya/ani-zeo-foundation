@@ -289,3 +289,25 @@ def test_extracted_article_text_can_support_numeric_claims():
     result = validate_generated_answer("Mashle Season 3 will have 12 episodes.", research)
     assert result["ok"] is True
     assert result["unsupported_numbers"] == []
+
+
+def test_live_news_fixture_does_not_reassign_incidental_title_mention():
+    research = {
+        "evidence": [{
+            "title": "Re:ZERO Announces Season 5 at 10th Anniversary Event",
+            "snippet": (
+                "Re:ZERO -Starting Life in Another World- Season 5 was announced "
+                "at the 10th Anniversary Starlight Party, with an ultra teaser visual. "
+                "The same news roundup also mentions Gushing Over Magical Girls Season 2."
+            ),
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer(
+        "• **Gushing Over Magical Girls – Season 2**\n"
+        "The Re:ZERO Season 5 announcement was made at its 10th anniversary event.",
+        research,
+    )
+    assert result["ok"] is False
+    assert result["unsupported_story_headings"] == ["Gushing Over Magical Girls"]

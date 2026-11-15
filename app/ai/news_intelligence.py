@@ -298,8 +298,9 @@ def align_claims_to_sources(answer: str, evidence: list[dict], min_coverage: flo
             anchor_coverage = len(anchor_tokens & source_tokens) / max(1, len(anchor_tokens))
             score = coverage * 0.75 + anchor_coverage * 0.25
             if score > best_score:
-                best, best_score = (item, source_sentence, coverage, anchor_coverage), score
-        if best and best[2] >= min_coverage and (best[3] >= 0.5 or not any(re.search(r"\d", t) for t in claim_tokens)):
+                best, best_score = (item, source_sentence, coverage, anchor_coverage, source_tokens), score
+        numeric_anchors = {token for token in claim_tokens if re.search(r"\d", token)}
+        if best and best[2] >= min_coverage and numeric_anchors.issubset(best[4]) and (best[3] >= 0.5 or not numeric_anchors):
             aligned.append({
                 "claim": sentence[:300],
                 "source_title": str(best[0].get("title") or "")[:180],

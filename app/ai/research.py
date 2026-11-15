@@ -679,9 +679,9 @@ class AnimeResearchService:
         semaphore = asyncio.Semaphore(5)
 
         async def enrich(item):
-            if not self._is_relevant_anime_result(item, query):
-                return item
             if not isinstance(item, dict):
+                return item
+            if not self._is_relevant_anime_result(item, query):
                 return item
             raw = item.get("raw_content") or item.get("page_text")
             if raw and len(str(raw).strip()) > 250:

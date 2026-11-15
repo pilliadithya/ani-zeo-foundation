@@ -340,7 +340,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("low_search_relevance")
             continue
 
-        page_text = re.sub(r"\\s+", " ", str(item.get("page_text") or "")).strip()[:6000]
+        page_text = re.sub(r"\s+", " ", str(item.get("page_text") or "")).strip()[:6000]
         accepted.append({
             "title": title[:180],
             "url": url,

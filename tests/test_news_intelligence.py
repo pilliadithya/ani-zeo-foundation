@@ -19,7 +19,9 @@ def test_article_extraction_ignores_script_and_navigation_text():
     <meta property="og:description" content="Official episode announcement"></head>
     <body><nav>Menu noise</nav><article><h1>New anime episode</h1>
     <p>The studio announced a new episode for Friday.</p>
-    <script>do_not_include_secret()</script></article><footer>Footer noise</footer></body></html>
+    <p>The official announcement includes the schedule and production information.</p>
+    <script>do_not_include_secret()</script></article>
+    <div>Related story: unrelated anime episode recap.</div><footer>Footer noise</footer></body></html>
     """
     result = extract_article_text(html)
     assert result["page_title"] == "Anime announcement"
@@ -27,6 +29,7 @@ def test_article_extraction_ignores_script_and_navigation_text():
     assert "The studio announced a new episode" in result["page_text"]
     assert "Menu noise" not in result["page_text"]
     assert "Footer noise" not in result["page_text"]
+    assert "Related story" not in result["page_text"]
     assert "do_not_include_secret" not in result["page_text"]
 
 

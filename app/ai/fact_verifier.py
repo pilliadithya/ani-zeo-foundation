@@ -317,10 +317,12 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
             rejected.append("low_search_relevance")
             continue
 
+        page_text = re.sub(r"\\s+", " ", str(item.get("page_text") or "")).strip()[:6000]
         accepted.append({
             "title": title[:180],
             "url": url,
             "snippet": snippet[:900],
+            "page_text": page_text,
             "domain": host,
             "published": str(item.get("published") or item.get("published_date") or "")[:32],
             "last_verified_at": str(item.get("last_verified_at") or "")[:40],
@@ -332,6 +334,7 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         if len(accepted) >= limit:
             break
 
+    cluster_stories(accepted)
     conflicts = _chapter_date_claims(accepted)
     primary_count = sum(x["verification_status"] == "primary_source" for x in accepted)
     reputable_count = sum(x["verification_status"] == "reputable_reporting" for x in accepted)
@@ -351,6 +354,13 @@ def verify_evidence(items: list[dict], query: str, limit: int = 5, require_anime
         "primary_source_count": primary_count,
         "reputable_source_count": reputable_count,
         "independent_publishers": len(seen_domains),
+        "story_clusters": {
+            item["story_id"]: {
+                "source_count": item["story_source_count"],
+                "independent_publishers": item["story_independent_publishers"],
+            }
+            for item in accepted
+        },
         "conflicts": conflicts,
     }
 

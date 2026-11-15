@@ -107,3 +107,15 @@ async def test_article_fetch_rejects_localhost_without_network_access():
         {"localhost"},
     )
     assert result["page_text"] == ""
+
+
+def test_claim_alignment_checks_short_factual_sentences():
+    evidence = [{
+        "title": "Mashle Season 3 premiere",
+        "url": "https://www.animenewsnetwork.com/news/example",
+        "snippet": "Mashle Season 3 will air in July.",
+    }]
+    supported = align_claims_to_sources("Season 3 airs in July.", evidence)
+    unsupported = align_claims_to_sources("Season 3 airs in October.", evidence)
+    assert supported["aligned_claims"]
+    assert unsupported["unsupported_claims"]

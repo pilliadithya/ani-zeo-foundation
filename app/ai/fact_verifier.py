@@ -8,6 +8,8 @@ from datetime import date
 from urllib.parse import urlparse
 import re
 
+from app.ai.news_intelligence import cluster_stories
+
 
 PRIMARY_DOMAINS = {
     "onepiece.com",

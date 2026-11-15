@@ -556,6 +556,13 @@ async def _chat_message_locked(update: Update, context) -> None:
             "content": "Ani Zeo active conversation topic: " + str(conversation_state["active_topic"])[:160],
         })
     intent_result = research.detect_intent(message.text, recent_for_scope)
+    # Resolve ambiguous natural-language and multilingual requests with a bounded AI pass.
+    if intent_result["scope"] == "clarify" or intent_result["confidence"] < 0.70:
+        resolved = await context.application.bot_data["ai"].classify_intent(
+            message.text, recent_for_scope, profile.get("preferred_language")
+        )
+        if resolved:
+            intent_result = {**intent_result, **resolved}
     scope = intent_result["scope"]
     normalized_text = intent_result["normalized_text"]
 
@@ -574,6 +581,13 @@ async def _chat_message_locked(update: Update, context) -> None:
 
     if scope == "redirect":
         await message.reply_text(REDIRECT)
+        return
+
+    if scope == "clarify":
+        await message.reply_text(
+            "I want to understand that correctly. Are you asking about an anime, manga, "
+            "character, creator, studio, or something else in the anime world?"
+        )
         return
 
     if intent_result["intent"] == "greeting":

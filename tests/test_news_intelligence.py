@@ -129,3 +129,16 @@ def test_claim_alignment_rejects_wrong_month_even_when_series_and_season_match()
     }]
     result = align_claims_to_sources("Season 3 airs in October.", evidence)
     assert result["unsupported_claims"]
+
+
+def test_claim_alignment_handles_empty_evidence_without_crashing():
+    result = align_claims_to_sources("A new season will premiere in July.", [])
+    assert result["unsupported_claims"]
+
+
+def test_claim_alignment_rejects_short_claim_when_no_source_span_matches():
+    result = align_claims_to_sources(
+        "It airs in October.",
+        [{"title": "Mashle Season 3 premiere", "snippet": "It airs in July."}],
+    )
+    assert result["unsupported_claims"]

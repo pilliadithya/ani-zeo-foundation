@@ -260,3 +260,32 @@ def test_generated_answer_accepts_story_heading_supported_by_source_headline():
     )
     assert result["ok"] is True
     assert result["unsupported_story_headings"] == []
+
+
+def test_generated_answer_rejects_unsupported_numeric_claims():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 announcement",
+            "snippet": "The new season was announced.",
+            "verification_status": "reputable_reporting",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer("Mashle Season 3 will have 24 episodes.", research)
+    assert result["ok"] is False
+    assert "24" in result["unsupported_numbers"]
+
+
+def test_extracted_article_text_can_support_numeric_claims():
+    research = {
+        "evidence": [{
+            "title": "Mashle Season 3 announcement",
+            "snippet": "The new season was announced.",
+            "page_text": "The studio confirmed the season will contain 12 episodes.",
+            "verification_status": "primary_source",
+        }],
+        "verification": {"conflicts": []},
+    }
+    result = validate_generated_answer("Mashle Season 3 will have 12 episodes.", research)
+    assert result["ok"] is True
+    assert result["unsupported_numbers"] == []

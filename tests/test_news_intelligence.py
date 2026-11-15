@@ -47,3 +47,12 @@ def test_story_clustering_counts_independent_publishers_per_story():
     assert items[0]["story_source_count"] == 2
     assert items[0]["story_independent_publishers"] == 2
     assert items[2]["story_id"] != items[0]["story_id"]
+
+
+def test_different_seasons_of_same_franchise_are_not_merged():
+    items = [
+        {"title": "Mashle Season 3 reveals premiere date", "domain": "news.example"},
+        {"title": "Mashle Season 4 production announced", "domain": "anime.example"},
+    ]
+    cluster_stories(items)
+    assert items[0]["story_id"] != items[1]["story_id"]

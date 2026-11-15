@@ -114,3 +114,30 @@ sentence. Stronger semantic claim verification still requires sentence-level evi
 alignment or a dedicated verifier with its own cited source spans. If a provider supplies
 no page text, the system continues to use the available search excerpt and fails closed on
 the supported checks rather than pretending the page was fetched.
+
+
+## Bounded page retrieval and sentence-level evidence alignment
+
+When a search provider does not return meaningful raw article text, Ani Zeo may fetch the
+result page only when its hostname matches the maintained primary/reputable publisher
+allowlist. Retrieval is HTTPS-only, manually validates each redirect, checks DNS answers
+against public-address ranges, limits redirects, response size, content type and timeout,
+and extracts bounded readable text. This is an application-layer safeguard; deployment
+network egress rules should also block private and metadata address ranges.
+
+The final news verifier now attempts to align each factual-looking answer sentence to a
+source sentence, with the article headline as entity context. It records the source title,
+URL, matched source span and lexical coverage. Numerical anchors must occur in the matched
+span. Equivalent supported dates are normalized before numeric checks. Known chapter/date
+conflicts are included as explicit evidence context so an answer may accurately say that
+reports conflict without asserting one date as fact.
+
+This is transparent lexical alignment, not an LLM entailment judge. It can reject valid
+paraphrases and cannot reliably detect every contradiction, negation or subtle implication.
+A match is a traceable evidence pointer, not proof of truth. Keep unsupported claims out of
+the final answer and prefer a localized uncertainty response over invented details.
+
+Regression fixtures include recent real-world headline patterns such as the Re:ZERO Season 5
+announcement and unrelated titles mentioned in the same roundup. These are fixed fixtures,
+not live network tests; live publisher fetching remains dependent on provider responses,
+network reachability and the allowlist.

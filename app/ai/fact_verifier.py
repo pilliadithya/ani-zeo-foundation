@@ -8,7 +8,7 @@ from datetime import date
 from urllib.parse import urlparse
 import re
 
-from app.ai.news_intelligence import canonical_url, cluster_stories
+from app.ai.news_intelligence import align_claims_to_sources, canonical_url, cluster_stories
 
 
 PRIMARY_DOMAINS = {
@@ -234,6 +234,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
     source_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[.,]\d+)?%?(?![A-Za-z])", source_text))
     unsupported_numbers = sorted(answer_numbers - source_numbers)
     unsupported_story_headings = _unsupported_news_headings(answer, evidence)
+    claim_alignment = align_claims_to_sources(answer, evidence)
     invalid_dates = _invalid_date_claims(answer)
     verification = research_result.get("verification") or {}
     has_primary = any(
@@ -259,7 +260,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
                 break
     conflicted_chapters = sorted(set(conflicted_chapters))
     return {
-        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings or unsupported_numbers),
+        "ok": not (unsupported_chapters or unsupported_dates or invalid_dates or unsupported_confirmation or conflicted_chapters or unsupported_story_headings or unsupported_numbers or claim_alignment["unsupported_claims"]),
         "unsupported_chapters": unsupported_chapters,
         "unsupported_dates": unsupported_dates,
         "invalid_dates": invalid_dates,
@@ -267,6 +268,7 @@ def validate_generated_answer(answer: str, research_result: dict) -> dict:
         "conflicted_chapters": conflicted_chapters,
         "unsupported_story_headings": unsupported_story_headings,
         "unsupported_numbers": unsupported_numbers,
+        "claim_alignment": claim_alignment,
     }
 
 

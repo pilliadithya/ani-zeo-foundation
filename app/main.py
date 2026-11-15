@@ -528,28 +528,28 @@ async def _chat_message_locked(update: Update, context) -> None:
 
     db = context.application.bot_data["db"]
     profile = await db.get_profile(user.id)
+    consented = bool(profile and profile.get("consented_at"))
 
-    # Complete the two short onboarding steps before normal chat handling.
-    if profile and profile.get("onboarding_step") == "awaiting_name":
+    # Onboarding is explicit. A user who has not consented may still ask a
+    # stateless question; their message, history, preferences and memory are
+    # not persisted. /start remains the route into saved/personalised chat.
+    if consented and profile.get("onboarding_step") == "awaiting_name":
         if await handle_onboarding_name(update, context):
             return
 
-    if profile and profile.get("onboarding_step") == "awaiting_language":
+    if consented and profile.get("onboarding_step") == "awaiting_language":
         await message.reply_text(
             "Choose the language you'd like Ani Zeo to use:",
             reply_markup=language_keyboard(),
         )
         return
 
-    if not profile or not profile.get("consented_at"):
-        await message.reply_text(
-            "Please use /start to read the welcome note and begin onboarding."
-        )
-        return
+    profile = profile or {}
+    preferred_language = profile.get("preferred_language") or "english"
 
     research = context.application.bot_data["research"]
-    conversation_state = await db.get_conversation_state(user.id)
-    recent_for_scope = await db.get_recent_messages(user.id, limit=12)
+    conversation_state = await db.get_conversation_state(user.id) if consented else {}
+    recent_for_scope = await db.get_recent_messages(user.id, limit=12) if consented else []
     if conversation_state.get("active_topic"):
         recent_for_scope.append({
             "role": "assistant",
@@ -600,24 +600,25 @@ async def _chat_message_locked(update: Update, context) -> None:
             None,
         )
         greeting = greeting_for_language(
-            profile.get("preferred_language"),
+            preferred_language,
             profile.get("display_name"),
             previous_greeting,
             message.text,
         )
         await message.reply_text(greeting)
-        await db.save_exchange(user.id, message.text, greeting, getattr(update, "update_id", None))
-        await db.update_conversation_state(
-            user.id,
-            active_topic=None,
-            resolved_entities=[],
-            update_id=getattr(update, "update_id", None),
-        )
+        if consented:
+            await db.save_exchange(user.id, message.text, greeting, getattr(update, "update_id", None))
+            await db.update_conversation_state(
+                user.id,
+                active_topic=None,
+                resolved_entities=[],
+                update_id=getattr(update, "update_id", None),
+            )
         return
 
     try:
         # Personalization can be disabled in the user's profile.
-        personalization_enabled = profile.get("personalization_enabled", True) is not False
+        personalization_enabled = consented and profile.get("personalization_enabled", True) is not False
         memory_record = None
         summary_text = None
         summary_cursor = 0
@@ -633,7 +634,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                     # Migrate an older plain-text memory value safely.
                     summary_text = str(memory_record)[:1500]
 
-        history = await db.get_recent_messages(user.id, limit=16)
+        history = await db.get_recent_messages(user.id, limit=16) if consented else []
         # This immutable, provider-neutral snapshot includes the current turn exactly once.
         history = [dict(item) for item in history]
         history.append({"role": "user", "content": normalized_text})
@@ -644,12 +645,12 @@ async def _chat_message_locked(update: Update, context) -> None:
         if is_live_request or is_historical_request:
             if is_live_request:
                 live_result = await research.google_grounded_answer(
-                    normalized_text, profile.get("preferred_language")
+                    normalized_text, preferred_language
                 )
             if live_result is None:
                 log.info("Live search primary unavailable; trying configured sequential search fallback chain")
                 live_result = await research.search_fallback_answer(
-                    normalized_text, profile.get("preferred_language")
+                    normalized_text, preferred_language
                 )
 
             if live_result is None and is_historical_request:
@@ -725,7 +726,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                     break
             answer, provider, usage = await context.application.bot_data["ai"].reply(
                 ai_history,
-                profile.get("preferred_language"),
+                preferred_language,
                 memory_summary=summary_text,
                 research_context=research.evidence_context(live_result),
                 intent_context=(
@@ -767,7 +768,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                     fact_check.get("claim_alignment", {}).get("unsupported_claims", []),
                 )
                 answer = verification_fallback(
-                    profile.get("preferred_language"), fact_check
+                    preferred_language, fact_check
                 )
         else:
             # Use corrected wording for understanding while preserving original transcript.
@@ -777,7 +778,7 @@ async def _chat_message_locked(update: Update, context) -> None:
                     ai_history[history_index]["content"] = normalized_text
                     break
             answer, provider, usage = await context.application.bot_data["ai"].reply(
-                ai_history, profile.get("preferred_language"),
+                ai_history, preferred_language,
                 memory_summary=summary_text,
                 research_context=research.context_for(metadata),
                 intent_context=(
@@ -814,7 +815,7 @@ async def _chat_message_locked(update: Update, context) -> None:
             (live_result.get("provider") if live_result else None, research_usage),
             (provider, usage),
         ):
-            if usage_record:
+            if consented and usage_record:
                 try:
                     await db.log_ai_usage(user.id, usage_provider or provider, usage_record, usage_record.get("latency_ms"))
                 except Exception as usage_exc:
@@ -833,11 +834,17 @@ async def _chat_message_locked(update: Update, context) -> None:
 
         try:
             # Commit the transcript only after Telegram confirms the main answer was sent.
-            saved = await db.save_exchange(
-                user.id, message.text, answer, getattr(update, "update_id", None)
-            )
+            saved = False
+            if consented:
+                saved = await db.save_exchange(
+                    user.id, message.text, answer, getattr(update, "update_id", None)
+                )
             if saved:
-                detected_topic = title or research.extract_title(normalized_text)
+                detected_topic = (
+                    intent_result.get("active_topic")
+                    or title
+                    or research.extract_title(normalized_text)
+                )
                 if not detected_topic:
                     detected_topic = next(
                         (entity.title() for entity in research.INTENT_ENTITIES
@@ -851,8 +858,10 @@ async def _chat_message_locked(update: Update, context) -> None:
                         or (conversation_state.get("active_topic") if intent_result["intent"] == "follow_up" else None)
                     ),
                     resolved_entities=(
-                        [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}]
-                        if detected_topic else (
+                        ([{"type": "resolved_entity", "name": entity, "source": "intent_resolver"}
+                          for entity in intent_result.get("resolved_entities", [])]
+                         or [{"type": "anime_or_character", "name": detected_topic, "source": "explicit_user_turn"}])
+                        if detected_topic or intent_result.get("resolved_entities") else (
                             conversation_state.get("resolved_entities", [])
                             if intent_result["intent"] == "follow_up" else []
                         )
@@ -883,7 +892,7 @@ async def _chat_message_locked(update: Update, context) -> None:
 
         # Refresh memory after the user has received the answer. Summarization is
         # best-effort: if it fails, the chat reply remains successful.
-        if personalization_enabled:
+        if consented and personalization_enabled:
             try:
                 pending = await db.get_messages_for_summary(
                     user.id,
